@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { supabase, type Submission } from "./supabase";
+import { supabase, type Submission, type SubmissionDetail } from "./supabase";
 import {
   DEFAULT_CONFIG,
   DEFAULT_BANK,
@@ -40,6 +40,7 @@ export function Admin({
   const [rows, setRows] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<Submission | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -163,7 +164,11 @@ export function Admin({
           onDeleteAll={deleteAll}
           onExport={exportCSV}
           schools={Object.keys(config.SCHOOLS)}
+          onView={(r) => setViewing(r)}
         />
+      )}
+      {viewing && (
+        <CandidateDetail row={viewing} onClose={() => setViewing(null)} />
       )}
       {tab === "questions" && <QuestionBank bank={bank} onBankChange={onBankChange} />}
       {tab === "settings" && (
@@ -292,12 +297,14 @@ function Candidates({
   onDeleteAll,
   onExport,
   schools,
+  onView,
 }: {
   rows: Submission[];
   onDelete: (r: Submission) => void;
   onDeleteAll: () => void;
   onExport: () => void;
   schools: string[];
+  onView: (r: Submission) => void;
 }) {
   const [q, setQ] = useState("");
   const [school, setSchool] = useState("");
@@ -347,6 +354,9 @@ function Candidates({
             </div>
             <div className="row-actions">
               <div className="badge">{r.score}</div>
+              <button className="btn-icon" onClick={() => onView(r)} title="View details">
+                <i className="fa-solid fa-eye"></i>
+              </button>
               <button className="btn-icon danger" onClick={() => onDelete(r)} title="Delete">
                 <i className="fa-solid fa-trash"></i>
               </button>
@@ -676,6 +686,164 @@ function Field({
         <i className={`fa-solid ${icon}`}></i> {label}
       </label>
       {children}
+    </div>
+  );
+}
+
+/* ---------------- CANDIDATE DETAIL ---------------- */
+function CandidateDetail({
+  row,
+  onClose,
+}: {
+  row: Submission;
+  onClose: () => void;
+}) {
+  const d: SubmissionDetail | null | undefined = row.details;
+  const total = d?.answers?.length || 0;
+  const correct = d?.answers?.filter((a) => a.chosen === a.a).length || 0;
+  const skipped = d?.answers?.filter((a) => a.chosen === null).length || 0;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="card modal-card wide detail-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="detail-head">
+          <div>
+            <h3>
+              <i className="fa-solid fa-id-card"></i> {row.name}
+            </h3>
+            <div className="detail-sub">
+              {row.school} · {row.dept} ·{" "}
+              <i className="fa-brands fa-whatsapp"></i> {row.whatsapp || "—"}
+            </div>
+            <div className="detail-sub">
+              <i className="fa-solid fa-clock-rotate-left"></i>{" "}
+              {row.start_time} – {row.finish_time}
+            </div>
+          </div>
+          <button className="btn-icon danger" onClick={onClose} title="Close">
+            <i className="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <div className="detail-stats">
+          <div className="dstat">
+            <span>SCORE</span>
+            <b>{row.score}</b>
+          </div>
+          <div className="dstat ok">
+            <span>CORRECT</span>
+            <b>{correct}</b>
+          </div>
+          <div className="dstat err">
+            <span>WRONG</span>
+            <b>{total - correct - skipped}</b>
+          </div>
+          <div className="dstat warn">
+            <span>SKIPPED</span>
+            <b>{skipped}</b>
+          </div>
+          <div className="dstat">
+            <span>VIOLATIONS</span>
+            <b>{d?.violations?.length || 0}</b>
+          </div>
+        </div>
+
+        {d?.forced && (
+          <div className="violations-box">
+            <i className="fa-solid fa-triangle-exclamation"></i> Auto-submitted
+            after violations exceeded the limit.
+          </div>
+        )}
+
+        {d?.violations && d.violations.length > 0 && (
+          <div className="detail-section">
+            <h4>
+              <i className="fa-solid fa-shield-halved"></i> Security Log
+            </h4>
+            <ul className="viol-list">
+              {d.violations.map((v, i) => (
+                <li key={i}>
+                  <span className="viol-time">{v.at}</span> {v.type}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="detail-section">
+          <h4>
+            <i className="fa-solid fa-list-check"></i> Answers
+          </h4>
+          {!d?.answers?.length ? (
+            <div className="empty">
+              <i className="fa-solid fa-inbox"></i> This submission has no saved
+              answer breakdown (taken before detail-tracking was added).
+            </div>
+          ) : (
+            <div className="review-list">
+              {d.answers.map((a, i) => {
+                const isCorrect = a.chosen === a.a;
+                const isSkipped = a.chosen === null;
+                return (
+                  <div
+                    key={i}
+                    className="review-item"
+                    style={{
+                      borderLeft: `5px solid ${
+                        isSkipped
+                          ? "#bbb"
+                          : isCorrect
+                            ? "var(--ok)"
+                            : "var(--err)"
+                      }`,
+                    }}
+                  >
+                    <div className="review-q">
+                      <span className="review-num">Q{i + 1}</span> {a.q}
+                    </div>
+                    <div
+                      className={`review-yours ${
+                        isSkipped ? "" : isCorrect ? "correct" : "wrong"
+                      }`}
+                    >
+                      <i
+                        className={`fa-solid ${
+                          isSkipped
+                            ? "fa-circle-minus"
+                            : isCorrect
+                              ? "fa-circle-check"
+                              : "fa-circle-xmark"
+                        }`}
+                      ></i>{" "}
+                      Their answer:{" "}
+                      {isSkipped ? "Skipped" : a.o[a.chosen as number]}
+                    </div>
+                    {!isCorrect && (
+                      <div className="review-correct">
+                        <i className="fa-solid fa-check"></i> Correct: {a.o[a.a]}
+                      </div>
+                    )}
+                    {a.e && (
+                      <div className="review-explain">
+                        <i className="fa-solid fa-circle-info"></i> {a.e}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="modal-actions">
+          <button className="btn btn-dark" onClick={onClose}>
+            <i className="fa-solid fa-xmark"></i> CLOSE
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

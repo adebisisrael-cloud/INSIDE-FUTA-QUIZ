@@ -178,6 +178,18 @@ export default function App() {
     setFinalViolations(vs);
     setScreen("result");
 
+    const details = {
+      answers: pool.map((q, i) => ({
+        q: q.q,
+        o: q.o,
+        a: q.a,
+        chosen: answers[i],
+        e: q.e,
+      })),
+      violations: vs,
+      forced,
+    };
+
     try {
       await supabase.from("submissions").insert([
         {
@@ -189,6 +201,7 @@ export default function App() {
           points: s,
           start_time: startTime,
           finish_time: finishTime,
+          details,
         },
       ]);
     } catch {

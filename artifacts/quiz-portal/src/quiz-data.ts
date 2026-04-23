@@ -17,6 +17,11 @@ export type QuizConfig = {
   PORTAL_TITLE: string;
   PORTAL_SUBTITLE: string;
   LOGO_URL: string;
+  TEST_START: string;
+  TEST_END: string;
+  REQUIRE_WEBCAM: boolean;
+  ONE_ATTEMPT: boolean;
+  AUTO_WHATSAPP: boolean;
 };
 
 export const DEFAULT_CONFIG: QuizConfig = {
@@ -77,6 +82,11 @@ export const DEFAULT_CONFIG: QuizConfig = {
   PORTAL_TITLE: "INSIDE FUTA",
   PORTAL_SUBTITLE: "SMART TEST PORTAL",
   LOGO_URL: "https://files.catbox.moe/33ap4i.jpg",
+  TEST_START: "",
+  TEST_END: "",
+  REQUIRE_WEBCAM: true,
+  ONE_ATTEMPT: true,
+  AUTO_WHATSAPP: true,
 };
 
 export const DEFAULT_BANK: Question[] = [

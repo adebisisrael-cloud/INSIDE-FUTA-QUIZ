@@ -10,7 +10,7 @@ import { fetchConfig, fetchBank } from "./cloud";
 import { useAntiCheat, type Violation } from "./anti-cheat";
 import { Admin } from "./Admin";
 
-type Screen = "auth" | "quiz" | "result" | "admin";
+type Screen = "auth" | "quiz" | "result" | "admin" | "closed";
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -21,21 +21,53 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
+function shuffleQuestion(q: Question): Question {
+  const idx = shuffle([0, 1, 2, 3]);
+  const newO = idx.map((i) => q.o[i]);
+  const newA = idx.indexOf(q.a);
+  return { ...q, o: newO, a: newA };
+}
+
+function windowStatus(cfg: QuizConfig): {
+  ok: boolean;
+  message?: string;
+  startsAt?: Date;
+} {
+  const now = new Date();
+  if (cfg.TEST_START) {
+    const start = new Date(cfg.TEST_START);
+    if (!isNaN(start.getTime()) && now < start) {
+      return {
+        ok: false,
+        message: "The test window has not opened yet.",
+        startsAt: start,
+      };
+    }
+  }
+  if (cfg.TEST_END) {
+    const end = new Date(cfg.TEST_END);
+    if (!isNaN(end.getTime()) && now > end) {
+      return { ok: false, message: "The test window has closed." };
+    }
+  }
+  return { ok: true };
+}
+
 export default function App() {
   const [config, setConfig] = useState<QuizConfig>(DEFAULT_CONFIG);
   const [bank, setBank] = useState<Question[]>(DEFAULT_BANK);
   const [booting, setBooting] = useState(true);
   const [screen, setScreen] = useState<Screen>("auth");
+  const [closedMsg, setClosedMsg] = useState("");
 
-  // auth fields
   const [name, setName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [faculty, setFaculty] = useState("");
   const [dept, setDept] = useState("");
   const [code, setCode] = useState("");
   const [authError, setAuthError] = useState("");
+  const [authChecking, setAuthChecking] = useState(false);
 
-  // quiz state
   const [pool, setPool] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<(number | null)[]>([]);
   const [idx, setIdx] = useState(0);
@@ -46,9 +78,15 @@ export default function App() {
   const [showReview, setShowReview] = useState(false);
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [webcamDenied, setWebcamDenied] = useState(false);
+  const [webcamActive, setWebcamActive] = useState(false);
 
   const timerRef = useRef<number | null>(null);
   const submittedRef = useRef(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const snapshotsRef = useRef<string[]>([]);
+  const snapshotTimerRef = useRef<number | null>(null);
 
   const schools = useMemo(() => Object.keys(config.SCHOOLS).sort(), [config]);
   const departments = useMemo(
@@ -64,7 +102,6 @@ export default function App() {
     },
   });
 
-  // Initial cloud fetch
   useEffect(() => {
     (async () => {
       try {
@@ -79,8 +116,59 @@ export default function App() {
     })();
   }, []);
 
-  function start() {
+  async function startCamera(): Promise<boolean> {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 320, height: 240 },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+      setWebcamActive(true);
+      setWebcamDenied(false);
+      return true;
+    } catch {
+      setWebcamActive(false);
+      setWebcamDenied(true);
+      return false;
+    }
+  }
+
+  function takeSnapshot() {
+    const v = videoRef.current;
+    if (!v || !streamRef.current) return;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 320;
+      canvas.height = 240;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(v, 0, 0, 320, 240);
+      snapshotsRef.current = [
+        ...snapshotsRef.current,
+        canvas.toDataURL("image/jpeg", 0.45),
+      ];
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function stopCamera() {
+    if (snapshotTimerRef.current) {
+      window.clearInterval(snapshotTimerRef.current);
+      snapshotTimerRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setWebcamActive(false);
+  }
+
+  async function start() {
     const n = name.trim().toUpperCase();
+    setAuthError("");
 
     // Admin login
     if (
@@ -91,12 +179,11 @@ export default function App() {
         setAuthError("Invalid admin password.");
         return;
       }
-      setAuthError("");
       setScreen("admin");
       return;
     }
 
-    if (!n || !whatsapp || !faculty || !dept) {
+    if (!n || !whatsapp.trim() || !faculty || !dept) {
       setAuthError("Please fill in every field.");
       return;
     }
@@ -104,16 +191,61 @@ export default function App() {
       setAuthError("Invalid access code.");
       return;
     }
-    setAuthError("");
+
+    // Schedule check
+    const w = windowStatus(config);
+    if (!w.ok) {
+      setClosedMsg(
+        w.message +
+          (w.startsAt ? ` Opens ${w.startsAt.toLocaleString()}.` : ""),
+      );
+      setScreen("closed");
+      return;
+    }
+
+    setAuthChecking(true);
+    try {
+      // Duplicate attempt check
+      if (config.ONE_ATTEMPT) {
+        const { data } = await supabase
+          .from("submissions")
+          .select("id")
+          .eq("name", n)
+          .eq("whatsapp", whatsapp.trim())
+          .limit(1);
+        if (data && data.length > 0) {
+          setAuthError(
+            "You have already taken this test. Only one attempt per candidate is allowed.",
+          );
+          setAuthChecking(false);
+          return;
+        }
+      }
+
+      // Webcam
+      if (config.REQUIRE_WEBCAM) {
+        const ok = await startCamera();
+        if (!ok) {
+          setAuthError(
+            "Webcam access is required. Please allow camera and try again.",
+          );
+          setAuthChecking(false);
+          return;
+        }
+      }
+    } finally {
+      setAuthChecking(false);
+    }
+
     setName(n);
+    setWhatsapp(whatsapp.trim());
     beginQuiz();
   }
 
   function beginQuiz() {
-    const picked = shuffle(bank).slice(
-      0,
-      Math.min(config.QUESTIONS_PER_TEST, bank.length),
-    );
+    const picked = shuffle(bank)
+      .slice(0, Math.min(config.QUESTIONS_PER_TEST, bank.length))
+      .map(shuffleQuestion);
     setPool(picked);
     setAnswers(new Array(picked.length).fill(null));
     setIdx(0);
@@ -124,14 +256,18 @@ export default function App() {
     setShowReview(false);
     setShowFinishModal(false);
     submittedRef.current = false;
+    snapshotsRef.current = [];
     cheat.reset();
     setScreen("quiz");
   }
 
   function retake() {
+    // Retake still needs webcam and still counts as another attempt (prevented by ONE_ATTEMPT).
+    // For admin / explicitly allowed cases, we simply reshuffle from bank.
     beginQuiz();
   }
 
+  // Timer
   useEffect(() => {
     if (screen !== "quiz") return;
     timerRef.current = window.setInterval(() => {
@@ -150,6 +286,27 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 
+  // Webcam snapshots schedule (first at 5s, then every 45s, max 6)
+  useEffect(() => {
+    if (screen !== "quiz" || !webcamActive) return;
+    const first = window.setTimeout(() => {
+      takeSnapshot();
+      snapshotTimerRef.current = window.setInterval(() => {
+        if (snapshotsRef.current.length >= 6) {
+          if (snapshotTimerRef.current)
+            window.clearInterval(snapshotTimerRef.current);
+          return;
+        }
+        takeSnapshot();
+      }, 45000);
+    }, 5000);
+    return () => {
+      window.clearTimeout(first);
+      if (snapshotTimerRef.current)
+        window.clearInterval(snapshotTimerRef.current);
+    };
+  }, [screen, webcamActive]);
+
   function pickAnswer(i: number) {
     setAnswers((a) => {
       const copy = [...a];
@@ -162,12 +319,19 @@ export default function App() {
     setIdx((i) => Math.max(0, Math.min(pool.length - 1, i + d)));
   }
 
-  async function confirmFinish(forced = false, vs: Violation[] = cheat.violations) {
+  async function confirmFinish(
+    forced = false,
+    vs: Violation[] = cheat.violations,
+  ) {
     if (submittedRef.current) return;
     submittedRef.current = true;
     setShowFinishModal(false);
     setSubmitting(true);
     if (timerRef.current) window.clearInterval(timerRef.current);
+
+    // Take one final snapshot before stopping
+    takeSnapshot();
+    stopCamera();
 
     const finishTime = new Date().toLocaleTimeString();
     let s = 0;
@@ -188,6 +352,8 @@ export default function App() {
       })),
       violations: vs,
       forced,
+      snapshots: snapshotsRef.current,
+      webcam_denied: webcamDenied,
     };
 
     try {
@@ -208,6 +374,15 @@ export default function App() {
       /* ignore */
     } finally {
       setSubmitting(false);
+    }
+
+    // Auto-open WhatsApp report (only on manual submit so pop-up is allowed)
+    if (config.AUTO_WHATSAPP && !forced) {
+      const msg = `*${config.PORTAL_TITLE} REPORT*\n*Candidate:* ${name}\n*School:* ${faculty}\n*Dept:* ${dept}\n*Score:* ${s}/${pool.length}\n*Violations:* ${vs.length}`;
+      window.open(
+        `https://wa.me/${config.WA}?text=${encodeURIComponent(msg)}`,
+        "_blank",
+      );
     }
   }
 
@@ -250,6 +425,22 @@ export default function App() {
       </header>
 
       <div className="container">
+        {screen === "closed" && (
+          <div className="card result-card">
+            <div className="result-icon" style={{ color: "var(--warn)" }}>
+              <i className="fa-solid fa-lock"></i>
+            </div>
+            <h2 style={{ color: "var(--blue)" }}>Test Unavailable</h2>
+            <p style={{ color: "#555", margin: "10px 0 20px" }}>{closedMsg}</p>
+            <button
+              className="btn btn-dark"
+              onClick={() => setScreen("auth")}
+            >
+              <i className="fa-solid fa-arrow-left"></i> BACK
+            </button>
+          </div>
+        )}
+
         {screen === "auth" && (
           <div className="card">
             <h2 className="card-title">
@@ -320,12 +511,21 @@ export default function App() {
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") start();
+                  if (e.key === "Enter") void start();
                 }}
               />
             </div>
-            <button className="btn" onClick={start}>
-              <i className="fa-solid fa-right-to-bracket"></i> ACCESS PORTAL
+            <button
+              className="btn"
+              onClick={() => void start()}
+              disabled={authChecking}
+            >
+              <i
+                className={`fa-solid ${
+                  authChecking ? "fa-spinner fa-spin" : "fa-right-to-bracket"
+                }`}
+              ></i>{" "}
+              {authChecking ? "VERIFYING…" : "ACCESS PORTAL"}
             </button>
             {authError && (
               <div className="error-msg">
@@ -336,6 +536,18 @@ export default function App() {
               <i className="fa-solid fa-shield-halved"></i> Secure proctored test
               · {config.QUESTIONS_PER_TEST} questions ·{" "}
               {Math.floor(config.TIME / 60)} minutes
+              {config.REQUIRE_WEBCAM && (
+                <>
+                  {" "}
+                  · <i className="fa-solid fa-camera"></i> Webcam required
+                </>
+              )}
+              {config.ONE_ATTEMPT && (
+                <>
+                  {" "}
+                  · <i className="fa-solid fa-user-lock"></i> One attempt only
+                </>
+              )}
             </div>
           </div>
         )}
@@ -472,9 +684,6 @@ export default function App() {
               <button className="btn btn-success" onClick={shareWA}>
                 <i className="fa-brands fa-whatsapp"></i> NOTIFY ADMIN
               </button>
-              <button className="btn btn-warning" onClick={retake}>
-                <i className="fa-solid fa-rotate"></i> RETAKE TEST
-              </button>
               <button
                 className="btn btn-dark"
                 onClick={() => {
@@ -548,6 +757,24 @@ export default function App() {
           />
         )}
       </div>
+
+      {/* webcam preview (always mounted while quiz is on) */}
+      {screen === "quiz" && webcamActive && (
+        <div className="webcam-preview" title="Proctor camera active">
+          <video ref={videoRef} autoPlay muted playsInline />
+          <span className="rec-dot" />
+        </div>
+      )}
+      {/* hidden video for camera to bind to before quiz screen renders */}
+      {screen !== "quiz" && webcamActive && (
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          style={{ display: "none" }}
+        />
+      )}
 
       {showFinishModal && (
         <div className="modal-overlay">

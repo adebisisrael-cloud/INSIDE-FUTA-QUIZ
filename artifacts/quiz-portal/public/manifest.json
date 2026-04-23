@@ -1,0 +1,25 @@
+{
+  "name": "INSIDE FUTA Smart Test Portal",
+  "short_name": "FUTA Test",
+  "description": "Secure proctored smart test portal",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#003366",
+  "theme_color": "#003366",
+  "icons": [
+    {
+      "src": "https://files.catbox.moe/33ap4i.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any"
+    },
+    {
+      "src": "https://files.catbox.moe/33ap4i.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ]
+}

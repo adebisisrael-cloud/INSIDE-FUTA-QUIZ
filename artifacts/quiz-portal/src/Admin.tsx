@@ -380,6 +380,9 @@ function QuestionBank({
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importMode, setImportMode] = useState<"append" | "replace">("append");
 
   async function persist(next: Question[]) {
     setSaving(true);
@@ -398,6 +401,42 @@ function QuestionBank({
 
   function addNew() {
     setEditing({ idx: -1, q: { q: "", o: ["", "", "", ""], a: 0, e: "" } });
+  }
+
+  function parseImport(text: string): Question[] {
+    const out: Question[] = [];
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    lines.forEach((line) => {
+      if (line.startsWith("#")) return;
+      const parts = line.split("|").map((p) => p.trim());
+      if (parts.length < 6) return;
+      const [q, a, b, c, d, idxStr, explanation = ""] = parts;
+      const idx = parseInt(idxStr, 10);
+      if (!q || !a || !b || !c || !d || isNaN(idx) || idx < 0 || idx > 3) return;
+      out.push({ q, o: [a, b, c, d], a: idx, e: explanation });
+    });
+    return out;
+  }
+
+  async function doImport() {
+    const parsed = parseImport(importText);
+    if (parsed.length === 0) {
+      alert("No valid questions found. Check the format.");
+      return;
+    }
+    const next = importMode === "replace" ? parsed : [...bank, ...parsed];
+    await persist(next);
+    setImportOpen(false);
+    setImportText("");
+    alert(`Imported ${parsed.length} question(s).`);
+  }
+
+  function onFilePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => setImportText(String(reader.result || ""));
+    reader.readAsText(f);
   }
 
   async function save() {
@@ -450,6 +489,9 @@ function QuestionBank({
         <button className="btn btn-success small" onClick={addNew} disabled={saving}>
           <i className="fa-solid fa-plus"></i> New
         </button>
+        <button className="btn btn-info small" onClick={() => setImportOpen(true)} disabled={saving}>
+          <i className="fa-solid fa-file-import"></i> Import
+        </button>
         <button className="btn btn-warning small" onClick={reset} disabled={saving}>
           <i className="fa-solid fa-rotate-left"></i> Reset
         </button>
@@ -489,6 +531,81 @@ function QuestionBank({
           </div>
         ))}
       </div>
+
+      {importOpen && (
+        <div className="modal-overlay" onClick={() => setImportOpen(false)}>
+          <div
+            className="card modal-card wide"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3>
+              <i className="fa-solid fa-file-import"></i> Bulk Import Questions
+            </h3>
+            <p style={{ color: "#666", fontSize: "0.85rem", margin: "8px 0" }}>
+              One question per line, pipe-separated:
+              <br />
+              <code style={{ background: "#f1f3f5", padding: "2px 6px", borderRadius: 4, fontSize: "0.8rem" }}>
+                question | optA | optB | optC | optD | correctIndex(0-3) | explanation
+              </code>
+              <br />
+              Lines starting with <code>#</code> are comments. Explanation is optional.
+            </p>
+            <div className="form-item">
+              <label>Upload file (.txt or .csv) or paste below</label>
+              <input
+                type="file"
+                accept=".txt,.csv,text/plain"
+                onChange={onFilePick}
+                style={{ paddingLeft: 14 }}
+              />
+            </div>
+            <div className="form-item">
+              <label>Questions</label>
+              <textarea
+                rows={10}
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder="Capital of France? | Paris | London | Berlin | Madrid | 0 | France's capital."
+                style={{ fontFamily: "monospace", fontSize: "0.85rem" }}
+              />
+            </div>
+            <div className="form-item">
+              <label>
+                <input
+                  type="radio"
+                  checked={importMode === "append"}
+                  onChange={() => setImportMode("append")}
+                />{" "}
+                Append to existing bank
+              </label>
+              <label style={{ marginTop: 6 }}>
+                <input
+                  type="radio"
+                  checked={importMode === "replace"}
+                  onChange={() => setImportMode("replace")}
+                />{" "}
+                Replace entire bank
+              </label>
+            </div>
+            <div className="modal-actions">
+              <button
+                className="btn btn-sec"
+                onClick={() => setImportOpen(false)}
+                disabled={saving}
+              >
+                CANCEL
+              </button>
+              <button
+                className="btn btn-success"
+                onClick={doImport}
+                disabled={saving}
+              >
+                <i className={`fa-solid ${saving ? "fa-spinner fa-spin" : "fa-cloud-arrow-up"}`}></i> IMPORT
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editing && (
         <div className="modal-overlay">
@@ -647,6 +764,53 @@ function Settings({
         <Field label="Admin School" icon="fa-building-columns">
           <input value={draft.ADMIN.school} onChange={(e) => update("ADMIN", { ...draft.ADMIN, school: e.target.value })} />
         </Field>
+        <Field label="Test Opens At (local time)" icon="fa-calendar-plus">
+          <input
+            type="datetime-local"
+            value={draft.TEST_START}
+            onChange={(e) => update("TEST_START", e.target.value)}
+          />
+        </Field>
+        <Field label="Test Closes At (local time)" icon="fa-calendar-xmark">
+          <input
+            type="datetime-local"
+            value={draft.TEST_END}
+            onChange={(e) => update("TEST_END", e.target.value)}
+          />
+        </Field>
+      </div>
+
+      <div className="toggle-grid">
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={draft.REQUIRE_WEBCAM}
+            onChange={(e) => update("REQUIRE_WEBCAM", e.target.checked)}
+          />
+          <span>
+            <i className="fa-solid fa-camera"></i> Require Webcam (proctor snapshots)
+          </span>
+        </label>
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={draft.ONE_ATTEMPT}
+            onChange={(e) => update("ONE_ATTEMPT", e.target.checked)}
+          />
+          <span>
+            <i className="fa-solid fa-user-lock"></i> One Attempt Per Candidate
+          </span>
+        </label>
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={draft.AUTO_WHATSAPP}
+            onChange={(e) => update("AUTO_WHATSAPP", e.target.checked)}
+          />
+          <span>
+            <i className="fa-brands fa-whatsapp"></i> Auto-open WhatsApp report on submit
+          </span>
+        </label>
       </div>
 
       <div className="settings-actions">
@@ -702,13 +866,25 @@ function CandidateDetail({
   const total = d?.answers?.length || 0;
   const correct = d?.answers?.filter((a) => a.chosen === a.a).length || 0;
   const skipped = d?.answers?.filter((a) => a.chosen === null).length || 0;
+  const pct = total ? Math.round((correct / total) * 100) : 0;
+
+  function printReport() {
+    window.print();
+  }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div
-        className="card modal-card wide detail-modal"
+        className="card modal-card wide detail-modal printable"
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="print-header">
+          <img src="https://files.catbox.moe/33ap4i.jpg" alt="Logo" />
+          <div>
+            <h2>INSIDE FUTA · OFFICIAL REPORT CARD</h2>
+            <p>Confidential — Admin Copy</p>
+          </div>
+        </div>
         <div className="detail-head">
           <div>
             <h3>
@@ -755,6 +931,63 @@ function CandidateDetail({
           <div className="violations-box">
             <i className="fa-solid fa-triangle-exclamation"></i> Auto-submitted
             after violations exceeded the limit.
+          </div>
+        )}
+
+        <div className="detail-section">
+          <h4>
+            <i className="fa-solid fa-chart-line"></i> Performance
+          </h4>
+          <div className="perf-bar">
+            <div
+              className="perf-fill"
+              style={{
+                width: `${pct}%`,
+                background:
+                  pct >= 70
+                    ? "var(--ok)"
+                    : pct >= 50
+                      ? "var(--warn)"
+                      : "var(--err)",
+              }}
+            />
+          </div>
+          <p className="perf-text">
+            <b>{pct}%</b> ·{" "}
+            {pct >= 70
+              ? "Excellent performance"
+              : pct >= 50
+                ? "Pass — satisfactory"
+                : "Below passing threshold"}
+          </p>
+        </div>
+
+        {d?.webcam_denied && (
+          <div className="violations-box">
+            <i className="fa-solid fa-video-slash"></i> Candidate denied webcam access.
+          </div>
+        )}
+
+        {d?.snapshots && d.snapshots.length > 0 && (
+          <div className="detail-section">
+            <h4>
+              <i className="fa-solid fa-camera"></i> Proctor Snapshots ({d.snapshots.length})
+            </h4>
+            <div className="snap-grid">
+              {d.snapshots.map((src, i) => (
+                <a
+                  key={i}
+                  href={src}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="snap-item"
+                  title={`Snapshot ${i + 1}`}
+                >
+                  <img src={src} alt={`snap-${i}`} />
+                  <span>#{i + 1}</span>
+                </a>
+              ))}
+            </div>
           </div>
         )}
 
@@ -838,7 +1071,14 @@ function CandidateDetail({
           )}
         </div>
 
-        <div className="modal-actions">
+        <div className="print-footer">
+          Generated {new Date().toLocaleString()} · INSIDE FUTA Smart Test Portal
+        </div>
+
+        <div className="modal-actions no-print">
+          <button className="btn btn-info" onClick={printReport}>
+            <i className="fa-solid fa-print"></i> PRINT / SAVE PDF
+          </button>
           <button className="btn btn-dark" onClick={onClose}>
             <i className="fa-solid fa-xmark"></i> CLOSE
           </button>

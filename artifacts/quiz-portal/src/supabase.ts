@@ -16,6 +16,8 @@ export type SubmissionDetail = {
   }[];
   violations: { type: string; at: string }[];
   forced?: boolean;
+  snapshots?: string[];
+  webcam_denied?: boolean;
 };
 
 export type Submission = {

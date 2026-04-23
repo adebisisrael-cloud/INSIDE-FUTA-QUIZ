@@ -6,6 +6,18 @@ const SB_KEY =
 
 export const supabase = createClient(SB_URL, SB_KEY);
 
+export type SubmissionDetail = {
+  answers: {
+    q: string;
+    o: string[];
+    a: number;
+    chosen: number | null;
+    e: string;
+  }[];
+  violations: { type: string; at: string }[];
+  forced?: boolean;
+};
+
 export type Submission = {
   id?: number | string;
   name: string;
@@ -16,4 +28,5 @@ export type Submission = {
   points: number;
   start_time: string;
   finish_time: string;
+  details?: SubmissionDetail | null;
 };

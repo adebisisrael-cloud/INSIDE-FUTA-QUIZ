@@ -64,7 +64,7 @@ export const DEFAULT_CONFIG: QuizConfig = {
       "Crop, Soil and Pest management",
       "Fisheries and Aquaculture Technology",
     ],
-    {
+    
   "SIMME": [
     "Agricultural Engineering",
     "Chemical Engineering",

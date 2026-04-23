@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMART QUIZ ᴮᵞ ᴱᴹᴱᴿᴬᴸᴰ</title>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script>
+        window.MathJax = {
+            tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
+            svg: { fontCache: 'global' }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <style>
+        :root { --blue: #003366; --gold: #FFCC00; --bg: #f4f7f6; --white: #ffffff; --err: #e74c3c; --ok: #2ecc71; }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        
+        body { 
+            background: var(--bg); 
+            color: #333; 
+            -webkit-user-select: none; 
+            user-select: none; 
+        }
+
+        header { 
+            background: var(--white); 
+            padding: 15px 5%; 
+            display: flex; 
+            align-items: center; 
+            border-bottom: 4px solid var(--blue); 
+        }
+
+        .logo { width: 110px; height: auto; margin-right: 20px; }
+        .h-txt h1 { color: var(--blue); font-size: 1.5rem; text-transform: uppercase; letter-spacing: 1px; }
+        .h-txt p { font-size: 0.8rem; color: #666; font-weight: bold; }
+
+        .container { max-width: 800px; margin: 20px auto; padding: 0 15px; }
+        .card { background: var(--white); padding: 2rem; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.05); }
+
+        .form-item { margin-bottom: 15px; position: relative; }
+        .form-item i { position: absolute; left: 12px; top: 40px; color: var(--blue); }
+        label { display: block; font-weight: bold; margin-bottom: 5px; color: var(--blue); font-size: 0.9rem; }
+        
+        input, select { 
+            width: 100%; 
+            padding: 12px 12px 12px 35px; 
+            border: 2px solid #ddd; 
+            border-radius: 8px; 
+            background: white; 
+            outline: none; 
+            font-size: 1rem;
+        }
+
+        #quiz-ui, #res-ui, #admin-ui { display: none; }
+
+        .stats { 
+            display: flex; 
+            justify-content: space-between; 
+            background: #f8f9fa; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin-bottom: 20px; 
+            border-left: 4px solid var(--blue); 
+        }
+
+        .q-body { font-size: 1.15rem; margin: 25px 0; line-height: 1.6; font-weight: 500; }
+        
+        .opts { display: grid; gap: 12px; }
+        .opt { 
+            padding: 15px; 
+            border: 2px solid #eee; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            display: flex; 
+            gap: 12px; 
+            transition: 0.2s; 
+            background: #fff; 
+            align-items: center;
+        }
+        .opt:hover { background: #f9f9f9; border-color: #ccc; }
+        .opt.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+        .btn { 
+            background: var(--blue); 
+            color: #fff; 
+            border: none; 
+            padding: 15px; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: bold; 
+            width: 100%; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            gap: 10px; 
+            font-size: 1rem; 
+            transition: 0.3s;
+        }
+        .btn-sec { background: #eee; color: var(--blue); width: 48%; }
+
+        .map { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); 
+            gap: 8px; 
+            margin-top: 25px; 
+            padding-top: 20px; 
+            border-top: 2px solid #eee; 
+        }
+        .dot { 
+            height: 38px; 
+            background: #ddd; 
+            border-radius: 6px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            font-size: 0.85rem; 
+            font-weight: bold;
+            cursor: pointer; 
+        }
+        .dot.done { background: var(--blue); color: #fff; }
+        .dot.now { border: 3px solid var(--gold); background: #fff; color: var(--blue); }
+
+        .admin-row { padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .badge { background: var(--blue); color: #fff; padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem; }
+        
+        .modal-overlay { 
+            display: none; 
+            position: fixed; 
+            top: 0; left: 0; 
+            width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.85); 
+            z-index: 10000; 
+            align-items: center; 
+            justify-content: center; 
+            backdrop-filter: blur(4px);
+        }
+    </style>
+</head>
+<body oncontextmenu="return false;">
+
+<header>
+    <img src="https://files.catbox.moe/33ap4i.jpg" alt="Logo" class="logo">
+    <div class="h-txt">
+        <h1>INSIDE FUTA</h1>
+        <p>SMART TEST PORTAL</p>
+    </div>
+</header>
+
+<div class="container">
+    <div id="auth-ui" class="card">
+        <h2 style="text-align:center; margin-bottom:20px; color: var(--blue);">CANDIDATE LOGIN</h2>
+        <div class="form-item"><label>Full Name</label><i class="fa-solid fa-user"></i><input type="text" id="name" placeholder="SURNAME FIRSTNAME"></div>
+        <div class="form-item"><label>WhatsApp Number</label><i class="fa-solid fa-phone"></i><input type="tel" id="whatsapp" placeholder="08112476004"></div>
+        <div class="form-item"><label>School (Faculty)</label><i class="fa-solid fa-building-columns"></i><select id="faculty" onchange="updateDepts()"><option value="">-- Select School --</option></select></div>
+        <div class="form-item"><label>Department</label><i class="fa-solid fa-graduation-cap"></i><select id="dept" disabled><option value="">-- Select School First --</option></select></div>
+        <div class="form-item"><label>Access Code</label><i class="fa-solid fa-lock"></i><input type="text" id="code" placeholder="Enter Access Code"></div>
+        <button class="btn" onclick="start()"><i class="fa-solid fa-right-to-bracket"></i> ACCESS PORTAL</button>
+    </div>
+
+    <div id="quiz-ui" class="card">
+        <div class="stats">
+            <div id="u-tag" style="font-weight: bold; color: var(--blue);"></div>
+            <div style="color:var(--err); font-weight:bold;"><i class="fa-solid fa-stopwatch"></i> <span id="timer">25:00</span></div>
+        </div>
+        <div id="q-area">
+            <p id="q-head" style="font-weight:bold; color:var(--gold); font-size: 0.8rem; text-transform: uppercase;"></p>
+            <div class="q-body" id="q-body"></div>
+            <div class="opts" id="opts"></div>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-top:25px;">
+            <button class="btn btn-sec" onclick="move(-1)"><i class="fa-solid fa-angle-left"></i> PREVIOUS</button>
+            <button class="btn btn-sec" onclick="move(1)">NEXT <i class="fa-solid fa-angle-right"></i></button>
+        </div>
+        <button class="btn" style="background:var(--err); margin-top:15px;" onclick="finish()"><i class="fa-solid fa-paper-plane"></i> SUBMIT FINAL</button>
+        <div class="map" id="map"></div>
+    </div>
+
+    <div id="res-ui" class="card" style="text-align:center;">
+        <i class="fa-solid fa-circle-check" style="font-size:4rem; color:var(--ok); margin-bottom: 15px;"></i>
+        <h2 id="final-score" style="margin:10px 0; font-size: 2.5rem; color: var(--blue);">0/30</h2>
+        <div style="display:grid; gap:10px; margin-top: 20px;">
+            <button onclick="toggleRev()" class="btn" style="background: #3498db;"><i class="fa-solid fa-list-check"></i> VIEW CORRECTIONS</button>
+            <button onclick="shareWA()" class="btn" style="background: #27ae60;"><i class="fa-brands fa-whatsapp"></i> NOTIFY ADMIN</button>
+            <button onclick="location.reload()" class="btn" style="background: #2c3e50;"><i class="fa-solid fa-rotate"></i> RESTART</button>
+        </div>
+        <div id="rev-area" style="margin-top:25px; text-align:left; display:none;"></div>
+    </div>
+
+    <div id="admin-ui" class="card">
+        <h2 style="color:var(--blue); margin-bottom:20px; display:flex; align-items:center; gap:10px;"><i class="fa-solid fa-shield-halved"></i> MASTER CONTROL</h2>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-bottom:25px;">
+            <div style="background:#f0f7ff; padding:20px; border-radius:10px; text-align:center; border: 1px solid #d0e4ff;">
+                <p style="font-size:0.75rem; font-weight:bold; color:#555;">TOTAL CANDIDATES</p>
+                <h2 id="adm-count" style="color:var(--blue); font-size: 2rem;">0</h2>
+            </div>
+            <div style="background:#fff9e6; padding:20px; border-radius:10px; text-align:center; border: 1px solid #ffe8a3;">
+                <p style="font-size:0.75rem; font-weight:bold; color:#555;">HIGHEST SCORE</p>
+                <h2 id="adm-high" style="color:var(--gold); font-size: 2rem;">0</h2>
+            </div>
+        </div>
+        <div id="admin-list" style="max-height: 500px; overflow-y: auto; border: 1px solid #eee; border-radius: 8px;"></div>
+    </div>
+</div>
+
+<div id="custom-modal" class="modal-overlay">
+    <div class="card" style="max-width: 380px; text-align: center;">
+        <i class="fa-solid fa-circle-question" style="font-size: 50px; color: var(--gold); margin-bottom: 15px;"></i>
+        <h3>FINISH TEST?</h3>
+        <p style="margin: 15px 0 25px; color: #666; font-size: 0.95rem;">Confirming will end your session and sync your data to the server.</p>
+        <div style="display: flex; gap: 10px;">
+            <button class="btn btn-sec" onclick="closeModal()">CANCEL</button>
+            <button class="btn" style="background:var(--ok);" onclick="confirmFinish()">SUBMIT NOW</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const SB_URL = "https://viislvqotvivkxcdbtyd.supabase.co"; 
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZpaXNsdnFvdHZpdmt4Y2RidHlkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NDY0NzksImV4cCI6MjA5MjUyMjQ3OX0.1xio9peC2hjyMsjUG5b2rMYiU3BW-SaYaObkq4a8vJQ";
+const client = supabase.createClient(SB_URL, SB_KEY);
+
+const CONFIG = { 
+    CODE: "INSIDEFUTA", 
+    WA: "2348112476004", 
+    TIME: 1500,
+    ADMIN: { name: "ISRAEL MARVELOUS ADEBISI", school: "SPS", dept: "Mathematical Science" },
+    SCHOOLS: {
+        "SPS": ["Mathematical Science", "Physics Electronics", "Industrial Chemistry", "Statistics", "Library and Information Science", "Educational Technology"],
+        "SBMS": ["Bachelor of Medicine and Surgery", "Public Health", "Human Anatomy", "Medical Laboratory Science", "Physiology"],
+        "SOC": ["Information System", "Cyber Security", "Information Technology", "Software Engineering", "Data Science", "Computer Science"],
+        "SAAT": ["Food Science and Technology", "Animal Production and Health", "Crop, Soil and Pest management", "Fisheries and Aquaculture Technology"],
+        "SEMS": ["Applied Geophysics", "Applied Geology", "Meteorology and Climate Science"],
+        "SET": ["Architecture", "Building Technology", "Estate Management", "Industrial Design", "Quantity Surveying"]
+    }
+};
+
+const BANK = [
+    { q: "Who wrote 'Things Fall Apart'?", o: ["Wole Soyinka", "Chinua Achebe", "Ngũgĩ wa Thiong'o", "Buchi Emecheta"], a: 1, e: "Published in 1958." },
+    { q: "What is the capital of Australia?", o: ["Sydney", "Melbourne", "Canberra", "Brisbane"], a: 2, e: "Canberra was founded in 1913." },
+    { q: "Which element has the chemical symbol 'Au'?", o: ["Silver", "Aluminum", "Gold", "Argon"], a: 2, e: "Au is from the Latin 'aurum'." },
+    { q: "In what year did World War I begin?", o: ["1912", "1914", "1916", "1918"], a: 1, e: "July 1914." },
+    { q: "Who painted the 'Sistine Chapel' ceiling?", o: ["Leonardo da Vinci", "Raphael", "Michelangelo", "Donatello"], a: 2, e: "Completed in 1512." },
+    { q: "What is the largest desert in the world?", o: ["Sahara", "Arabian", "Gobi", "Antarctic"], a: 3, e: "The Antarctic is a polar desert." },
+    { q: "Which economist wrote 'The Wealth of Nations'?", o: ["Karl Marx", "John Maynard Keynes", "Adam Smith", "Milton Friedman"], a: 2, e: "Smith published it in 1776." },
+    { q: "What is the speed of light in a vacuum?", o: ["299,792 km/s", "150,000 km/s", "400,000 km/s", "1,000,000 km/s"], a: 0, e: "Approx 300,000 km/s." },
+    { q: "Who was the first President of the United States?", o: ["Thomas Jefferson", "John Adams", "George Washington", "Benjamin Franklin"], a: 2, e: "George Washington (1789)." },
+    { q: "What is the longest river in the world?", o: ["Amazon", "Nile", "Yangtze", "Mississippi"], a: 1, e: "The Nile River." },
+    { q: "Which planet is known as the Red Planet?", o: ["Venus", "Jupiter", "Mars", "Saturn"], a: 2, e: "Mars has iron oxide surface." },
+    { q: "Who wrote 'One Hundred Years of Solitude'?", o: ["Mario Vargas Llosa", "Gabriel García Márquez", "Jorge Luis Borges", "Pablo Neruda"], a: 1, e: "Published 1967." },
+    { q: "What is the currency of Japan?", o: ["Yuan", "Won", "Yen", "Ringgit"], a: 2, e: "Japanese Yen." },
+    { q: "Which organ filters blood in the human body?", o: ["Liver", "Heart", "Kidneys", "Lungs"], a: 2, e: "Renal filtration." },
+    { q: "What is the hardest natural substance on Earth?", o: ["Quartz", "Diamond", "Topaz", "Corundum"], a: 1, e: "Diamond." },
+    { q: "In which year did the Berlin Wall fall?", o: ["1987", "1989", "1991", "1993"], a: 1, e: "November 1989." },
+    { q: "Who developed the theory of relativity?", o: ["Isaac Newton", "Niels Bohr", "Albert Einstein", "Max Planck"], a: 2, e: "Albert Einstein." },
+    { q: "What is the largest ocean on Earth?", o: ["Atlantic", "Indian", "Arctic", "Pacific"], a: 3, e: "Pacific Ocean." },
+    { q: "Which country has the most UNESCO sites?", o: ["Italy", "China", "Spain", "France"], a: 0, e: "Italy holds the record." },
+    { q: "What does 'DNA' stand for?", o: ["Deoxyribonucleic Acid", "Dinucleic Acid", "Double Nucleic Acid", "Dynamic Nucleic Acid"], a: 0, e: "Genetic code." },
+    { q: "Who was the longest-reigning British monarch?", o: ["Victoria", "Elizabeth II", "George III", "Henry VIII"], a: 1, e: "Elizabeth II (70 years)." },
+    { q: "What is the capital of Canada?", o: ["Toronto", "Vancouver", "Ottawa", "Montreal"], a: 2, e: "Ottawa." },
+    { q: "Which gas makes up 78% of Earth's atmosphere?", o: ["Oxygen", "Carbon Dioxide", "Nitrogen", "Argon"], a: 2, e: "Nitrogen." },
+    { q: "Who composed the 'Four Seasons'?", o: ["Bach", "Mozart", "Vivaldi", "Beethoven"], a: 2, e: "Antonio Vivaldi." },
+    { q: "What is the smallest unit of matter?", o: ["Molecule", "Atom", "Electron", "Quark"], a: 1, e: "The Atom." },
+    { q: "Which African country was never colonized?", o: ["Ethiopia", "Liberia", "Both A and B", "Egypt"], a: 2, e: "Ethiopia and Liberia." },
+    { q: "What is the powerhouse of the cell?", o: ["Nucleus", "Ribosome", "Mitochondria", "Golgi"], a: 2, e: "Mitochondria." },
+    { q: "Who wrote 'The Communist Manifesto'?", o: ["Lenin", "Marx & Engels", "Stalin", "Trotsky"], a: 1, e: "Karl Marx and Friedrich Engels." },
+    { q: "What is the deepest point in the ocean?", o: ["Mariana Trench", "Puerto Rico", "Tonga", "Philippine"], a: 0, e: "Challenger Deep." },
+    { q: "What is the largest island in the world?", o: ["Australia", "Greenland", "New Guinea", "Borneo"], a: 1, e: "Greenland (Island, not Continent)." }
+];
+
+let pool = [], ans = [], idx = 0, rem = CONFIG.TIME, timer, startTime;
+
+const fSelect = document.getElementById('faculty');
+Object.keys(CONFIG.SCHOOLS).sort().forEach(s => fSelect.innerHTML += `<option value="${s}">${s}</option>`);
+
+function updateDepts() {
+    const dSelect = document.getElementById('dept');
+    dSelect.innerHTML = '<option value="">-- Select Department --</option>';
+    if(fSelect.value) {
+        dSelect.disabled = false;
+        CONFIG.SCHOOLS[fSelect.value].sort().forEach(d => dSelect.innerHTML += `<option value="${d}">${d}</option>`);
+    } else dSelect.disabled = true;
+}
+
+function start() {
+    const n = document.getElementById('name').value.trim().toUpperCase();
+    const f = document.getElementById('faculty').value;
+    const d = document.getElementById('dept').value;
+    const c = document.getElementById('code').value;
+
+    if (n === CONFIG.ADMIN.name && f === CONFIG.ADMIN.school) return openAdmin();
+    if (c !== CONFIG.CODE || !n || !f || !d) return;
+
+    startTime = new Date().toLocaleTimeString();
+    document.getElementById('u-tag').innerHTML = `<i class="fa-solid fa-user-check"></i> ${n}`;
+    document.getElementById('auth-ui').style.display = 'none';
+    document.getElementById('quiz-ui').style.display = 'block';
+
+    pool = [...BANK].sort(() => 0.5 - Math.random()).slice(0, 30);
+    ans = new Array(pool.length).fill(null);
+    load(); startTimer();
+}
+
+function load() {
+    const q = pool[idx];
+    document.getElementById('q-head').innerText = `Question ${idx + 1} of ${pool.length}`;
+    document.getElementById('q-body').innerHTML = q.q;
+    const oBox = document.getElementById('opts'); oBox.innerHTML = '';
+    q.o.forEach((t, i) => {
+        const d = document.createElement('div');
+        d.className = `opt ${ans[idx] === i ? 'active' : ''}`;
+        d.innerHTML = `<b>${String.fromCharCode(65+i)}.</b> ${t}`;
+        d.onclick = () => { ans[idx] = i; load(); };
+        oBox.appendChild(d);
+    });
+    drawMap();
+    if(window.MathJax) MathJax.typesetPromise();
+}
+
+function move(d) { idx = Math.max(0, Math.min(pool.length-1, idx + d)); load(); }
+function finish() { document.getElementById('custom-modal').style.display = 'flex'; }
+function closeModal() { document.getElementById('custom-modal').style.display = 'none'; }
+
+async function confirmFinish() {
+    closeModal(); clearInterval(timer);
+    const finishTime = new Date().toLocaleTimeString();
+    let s = 0; pool.forEach((q, i) => { if(ans[i] === q.a) s++; });
+    
+    document.getElementById('quiz-ui').style.display = 'none';
+    document.getElementById('res-ui').style.display = 'block';
+    document.getElementById('final-score').innerText = `${s}/${pool.length}`;
+
+    await client.from('submissions').insert([{
+        name: document.getElementById('name').value,
+        whatsapp: document.getElementById('whatsapp').value,
+        school: document.getElementById('faculty').value,
+        dept: document.getElementById('dept').value,
+        score: `${s}/${pool.length}`,
+        points: s,
+        start_time: startTime,
+        finish_time: finishTime
+    }]);
+}
+
+async function openAdmin() {
+    document.getElementById('auth-ui').style.display = 'none';
+    document.getElementById('admin-ui').style.display = 'block';
+    const { data } = await client.from('submissions').select('*').order('points', { ascending: false });
+    
+    document.getElementById('adm-count').innerText = data ? data.length : 0;
+    document.getElementById('adm-high').innerText = data && data.length ? data[0].points : 0;
+    
+    const list = document.getElementById('admin-list');
+    list.innerHTML = data.map(r => `
+        <div class="admin-row">
+            <div>
+                <b>${r.name}</b><br>
+                <small>${r.dept}</small><br>
+                <small style="color:var(--blue)"><i class="fa-solid fa-clock-rotate-left"></i> ${r.start_time} - ${r.finish_time}</small>
+            </div>
+            <div class="badge">${r.score}</div>
+        </div>
+    `).join('');
+}
+
+function startTimer() {
+    timer = setInterval(() => {
+        rem--;
+        let m = Math.floor(rem/60), s = rem%60;
+        document.getElementById('timer').innerText = `${m}:${s<10?'0':''}${s}`;
+        if(rem <= 0) confirmFinish();
+    }, 1000);
+}
+
+function drawMap() {
+    const m = document.getElementById('map'); m.innerHTML = '';
+    pool.forEach((_, i) => {
+        const d = document.createElement('div');
+        d.className = `dot ${ans[i] !== null ? 'done' : ''} ${idx === i ? 'now' : ''}`;
+        d.innerText = i + 1; d.onclick = () => { idx = i; load(); };
+        m.appendChild(d);
+    });
+}
+
+function toggleRev() {
+    const a = document.getElementById('rev-area');
+    a.style.display = a.style.display === 'block' ? 'none' : 'block';
+    a.innerHTML = '';
+    pool.forEach((q, i) => {
+        const r = ans[i] === q.a;
+        a.innerHTML += `
+            <div style="padding:15px; background:#f8f9fa; border-radius:8px; margin-bottom:10px; border-left:5px solid ${r?'var(--ok)':'var(--err)'}">
+                <b>Q${i+1}: ${q.q}</b><br>
+                <span style="color:${r?'var(--ok)':'var(--err)'}">Yours: ${ans[i]!==null?q.o[ans[i]]:'Skipped'}</span><br>
+                ${!r?`<span style="color:var(--ok)">Correct: ${q.o[q.a]}</span><br>`:''}
+                <small style="color:#666"><i>${q.e}</i></small>
+            </div>`;
+    });
+}
+
+function shareWA() {
+    const msg = `*GENERAL KNOWLEDGE REPORT*%0A*Candidate:* ${document.getElementById('name').value}%0A*Score:* ${document.getElementById('final-score').innerText}`;
+    window.open(`https://wa.me/${CONFIG.WA}?text=${msg}`);
+}
+</script>
+</body>
+</html>

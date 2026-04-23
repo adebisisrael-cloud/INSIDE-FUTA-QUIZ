@@ -697,6 +697,18 @@ select:disabled {
 }
 .settings-note i { margin-right: 6px; }
 
+.boot-loader {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--blue);
+  font-weight: 600;
+  font-size: 1rem;
+}
+.boot-loader i { font-size: 1.5rem; color: var(--gold); }
+
 @media (max-width: 600px) {
   .h-txt h1 { font-size: 1.1rem; }
   .h-txt p { font-size: 0.7rem; }

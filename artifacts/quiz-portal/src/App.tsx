@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabase";
 import {
-  loadConfig,
-  loadBank,
+  DEFAULT_CONFIG,
+  DEFAULT_BANK,
   type Question,
   type QuizConfig,
 } from "./quiz-data";
+import { fetchConfig, fetchBank } from "./cloud";
 import { useAntiCheat, type Violation } from "./anti-cheat";
 import { Admin } from "./Admin";
 
@@ -21,7 +22,9 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 export default function App() {
-  const [config, setConfig] = useState<QuizConfig>(loadConfig);
+  const [config, setConfig] = useState<QuizConfig>(DEFAULT_CONFIG);
+  const [bank, setBank] = useState<Question[]>(DEFAULT_BANK);
+  const [booting, setBooting] = useState(true);
   const [screen, setScreen] = useState<Screen>("auth");
 
   // auth fields
@@ -61,10 +64,25 @@ export default function App() {
     },
   });
 
+  // Initial cloud fetch
+  useEffect(() => {
+    (async () => {
+      try {
+        const [c, b] = await Promise.all([fetchConfig(), fetchBank()]);
+        setConfig(c);
+        setBank(b);
+      } catch {
+        /* keep defaults */
+      } finally {
+        setBooting(false);
+      }
+    })();
+  }, []);
+
   function start() {
     const n = name.trim().toUpperCase();
 
-    // Admin login: name + school + admin password (in code field)
+    // Admin login
     if (
       n === config.ADMIN.name.toUpperCase() &&
       faculty === config.ADMIN.school
@@ -92,7 +110,6 @@ export default function App() {
   }
 
   function beginQuiz() {
-    const bank = loadBank();
     const picked = shuffle(bank).slice(
       0,
       Math.min(config.QUESTIONS_PER_TEST, bank.length),
@@ -112,11 +129,9 @@ export default function App() {
   }
 
   function retake() {
-    // reset auth-only fields stay; reshuffle and go again
     beginQuiz();
   }
 
-  // timer
   useEffect(() => {
     if (screen !== "quiz") return;
     timerRef.current = window.setInterval(() => {
@@ -197,11 +212,19 @@ export default function App() {
     setCode("");
     setFaculty("");
     setDept("");
-    setConfig(loadConfig());
   }
 
   const minutes = Math.floor(remaining / 60);
   const seconds = remaining % 60;
+
+  if (booting) {
+    return (
+      <div className="boot-loader">
+        <i className="fa-solid fa-spinner fa-spin"></i>
+        <span>Connecting to server…</span>
+      </div>
+    );
+  }
 
   return (
     <div onContextMenu={(e) => e.preventDefault()}>
@@ -505,7 +528,9 @@ export default function App() {
         {screen === "admin" && (
           <Admin
             config={config}
-            onConfigChange={(c) => setConfig(c)}
+            bank={bank}
+            onConfigChange={setConfig}
+            onBankChange={setBank}
             onLogout={logoutAdmin}
           />
         )}

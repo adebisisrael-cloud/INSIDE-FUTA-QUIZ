@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase, type Submission } from "./supabase";
 import {
-  loadBank,
-  saveBank,
-  resetBank,
-  saveConfig,
-  resetConfig,
-  loadConfig,
+  DEFAULT_CONFIG,
+  DEFAULT_BANK,
   type Question,
   type QuizConfig,
 } from "./quiz-data";
+import {
+  saveConfigCloud,
+  resetConfigCloud,
+  saveBankCloud,
+  resetBankCloud,
+} from "./cloud";
 
 type Tab = "overview" | "leaderboard" | "candidates" | "questions" | "settings";
 
@@ -23,11 +25,15 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 
 export function Admin({
   config,
+  bank,
   onConfigChange,
+  onBankChange,
   onLogout,
 }: {
   config: QuizConfig;
+  bank: Question[];
   onConfigChange: (c: QuizConfig) => void;
+  onBankChange: (b: Question[]) => void;
   onLogout: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("overview");
@@ -159,7 +165,7 @@ export function Admin({
           schools={Object.keys(config.SCHOOLS)}
         />
       )}
-      {tab === "questions" && <QuestionBank />}
+      {tab === "questions" && <QuestionBank bank={bank} onBankChange={onBankChange} />}
       {tab === "settings" && (
         <Settings config={config} onConfigChange={onConfigChange} />
       )}
@@ -202,42 +208,12 @@ function Overview({ rows, schools }: { rows: Submission[]; schools: string[] }) 
   return (
     <div className="overview">
       <div className="stat-grid">
-        <StatCard
-          icon="fa-users"
-          label="TOTAL CANDIDATES"
-          value={total}
-          color="blue"
-        />
-        <StatCard
-          icon="fa-trophy"
-          label="HIGHEST SCORE"
-          value={highest}
-          color="gold"
-        />
-        <StatCard
-          icon="fa-chart-line"
-          label="AVERAGE"
-          value={avg}
-          color="green"
-        />
-        <StatCard
-          icon="fa-arrow-down"
-          label="LOWEST SCORE"
-          value={lowest}
-          color="red"
-        />
-        <StatCard
-          icon="fa-percent"
-          label="PASS RATE (≥15)"
-          value={`${passRate}%`}
-          color="purple"
-        />
-        <StatCard
-          icon="fa-school"
-          label="ACTIVE SCHOOLS"
-          value={bySchool.filter((s) => s.count > 0).length}
-          color="teal"
-        />
+        <StatCard icon="fa-users" label="TOTAL CANDIDATES" value={total} color="blue" />
+        <StatCard icon="fa-trophy" label="HIGHEST SCORE" value={highest} color="gold" />
+        <StatCard icon="fa-chart-line" label="AVERAGE" value={avg} color="green" />
+        <StatCard icon="fa-arrow-down" label="LOWEST SCORE" value={lowest} color="red" />
+        <StatCard icon="fa-percent" label="PASS RATE (≥15)" value={`${passRate}%`} color="purple" />
+        <StatCard icon="fa-school" label="ACTIVE SCHOOLS" value={bySchool.filter((s) => s.count > 0).length} color="teal" />
       </div>
 
       <h3 className="section-title">
@@ -248,10 +224,7 @@ function Overview({ rows, schools }: { rows: Submission[]; schools: string[] }) 
           <div key={s.school} className="chart-row">
             <div className="chart-label">{s.school}</div>
             <div className="chart-bar-wrap">
-              <div
-                className="chart-bar"
-                style={{ width: `${(s.count / maxCount) * 100}%` }}
-              >
+              <div className="chart-bar" style={{ width: `${(s.count / maxCount) * 100}%` }}>
                 {s.count > 0 && <span>{s.count}</span>}
               </div>
             </div>
@@ -296,21 +269,14 @@ function Leaderboard({ rows }: { rows: Submission[] }) {
       {ranked.map((r, i) => (
         <div key={r.id ?? i} className={`lb-row rank-${i + 1}`}>
           <div className="lb-rank">
-            {i === 0 ? (
-              <i className="fa-solid fa-crown gold"></i>
-            ) : i === 1 ? (
-              <i className="fa-solid fa-medal silver"></i>
-            ) : i === 2 ? (
-              <i className="fa-solid fa-award bronze"></i>
-            ) : (
-              `#${i + 1}`
-            )}
+            {i === 0 ? <i className="fa-solid fa-crown gold"></i>
+              : i === 1 ? <i className="fa-solid fa-medal silver"></i>
+              : i === 2 ? <i className="fa-solid fa-award bronze"></i>
+              : `#${i + 1}`}
           </div>
           <div className="lb-info">
             <b>{r.name}</b>
-            <div className="lb-meta">
-              {r.school} · {r.dept}
-            </div>
+            <div className="lb-meta">{r.school} · {r.dept}</div>
           </div>
           <div className="lb-score">{r.score}</div>
         </div>
@@ -347,18 +313,10 @@ function Candidates({
   return (
     <div>
       <div className="toolbar">
-        <input
-          placeholder="Search name, WhatsApp, or dept…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+        <input placeholder="Search name, WhatsApp, or dept…" value={q} onChange={(e) => setQ(e.target.value)} />
         <select value={school} onChange={(e) => setSchool(e.target.value)}>
           <option value="">All schools</option>
-          {schools.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
+          {schools.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
         <button className="btn btn-info small" onClick={onExport}>
           <i className="fa-solid fa-download"></i> CSV
@@ -378,24 +336,18 @@ function Candidates({
             <div>
               <b>{r.name}</b>
               <div className="row-meta">
-                <i className="fa-solid fa-graduation-cap"></i> {r.school} ·{" "}
-                {r.dept}
+                <i className="fa-solid fa-graduation-cap"></i> {r.school} · {r.dept}
               </div>
               <div className="row-meta">
                 <i className="fa-brands fa-whatsapp"></i> {r.whatsapp || "—"}
               </div>
               <div className="row-meta">
-                <i className="fa-solid fa-clock-rotate-left"></i> {r.start_time}{" "}
-                – {r.finish_time}
+                <i className="fa-solid fa-clock-rotate-left"></i> {r.start_time} – {r.finish_time}
               </div>
             </div>
             <div className="row-actions">
               <div className="badge">{r.score}</div>
-              <button
-                className="btn-icon danger"
-                onClick={() => onDelete(r)}
-                title="Delete"
-              >
+              <button className="btn-icon danger" onClick={() => onDelete(r)} title="Delete">
                 <i className="fa-solid fa-trash"></i>
               </button>
             </div>
@@ -406,27 +358,39 @@ function Candidates({
   );
 }
 
-/* ---------------- QUESTION BANK ---------------- */
-function QuestionBank() {
-  const [bank, setBank] = useState<Question[]>(() => loadBank());
-  const [editing, setEditing] = useState<{ idx: number; q: Question } | null>(
-    null,
-  );
+/* ---------------- QUESTION BANK (CLOUD) ---------------- */
+function QuestionBank({
+  bank,
+  onBankChange,
+}: {
+  bank: Question[];
+  onBankChange: (b: Question[]) => void;
+}) {
+  const [editing, setEditing] = useState<{ idx: number; q: Question } | null>(null);
   const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
 
-  function persist(next: Question[]) {
-    setBank(next);
-    saveBank(next);
+  async function persist(next: Question[]) {
+    setSaving(true);
+    setMsg(null);
+    try {
+      await saveBankCloud(next);
+      onBankChange(next);
+      setMsg("Saved to cloud ✔");
+      setTimeout(() => setMsg(null), 2000);
+    } catch (e) {
+      setMsg("Save failed: " + (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function addNew() {
-    setEditing({
-      idx: -1,
-      q: { q: "", o: ["", "", "", ""], a: 0, e: "" },
-    });
+    setEditing({ idx: -1, q: { q: "", o: ["", "", "", ""], a: 0, e: "" } });
   }
 
-  function save() {
+  async function save() {
     if (!editing) return;
     if (!editing.q.q.trim() || editing.q.o.some((o) => !o.trim())) {
       alert("Question and all 4 options are required.");
@@ -435,20 +399,28 @@ function QuestionBank() {
     const next = [...bank];
     if (editing.idx === -1) next.push(editing.q);
     else next[editing.idx] = editing.q;
-    persist(next);
+    await persist(next);
     setEditing(null);
   }
 
-  function del(i: number) {
+  async function del(i: number) {
     if (!confirm("Delete this question?")) return;
-    persist(bank.filter((_, j) => j !== i));
+    await persist(bank.filter((_, j) => j !== i));
   }
 
-  function reset() {
-    if (!confirm("Reset question bank to defaults? This wipes your edits."))
-      return;
-    resetBank();
-    setBank(loadBank());
+  async function reset() {
+    if (!confirm("Reset question bank to defaults? This wipes your edits.")) return;
+    setSaving(true);
+    try {
+      await resetBankCloud();
+      onBankChange(DEFAULT_BANK);
+      setMsg("Reset to defaults ✔");
+      setTimeout(() => setMsg(null), 2000);
+    } catch (e) {
+      setMsg("Reset failed: " + (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   const filtered = bank
@@ -465,16 +437,18 @@ function QuestionBank() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <button className="btn btn-success small" onClick={addNew}>
+        <button className="btn btn-success small" onClick={addNew} disabled={saving}>
           <i className="fa-solid fa-plus"></i> New
         </button>
-        <button className="btn btn-warning small" onClick={reset}>
+        <button className="btn btn-warning small" onClick={reset} disabled={saving}>
           <i className="fa-solid fa-rotate-left"></i> Reset
         </button>
       </div>
       <div className="qbank-meta">
-        {bank.length} question(s) · stored locally on this device
+        {bank.length} question(s) · synced to Supabase · visible on every device
+        {saving && <> · <i className="fa-solid fa-spinner fa-spin"></i> saving…</>}
       </div>
+      {msg && <div className="saved-msg" style={{ marginBottom: 10 }}>{msg}</div>}
       <div className="qbank-list">
         {filtered.map(({ q, i }) => (
           <div key={i} className="qbank-row">
@@ -489,6 +463,7 @@ function QuestionBank() {
                 className="btn-icon"
                 onClick={() => setEditing({ idx: i, q: { ...q, o: [...q.o] } })}
                 title="Edit"
+                disabled={saving}
               >
                 <i className="fa-solid fa-pen"></i>
               </button>
@@ -496,6 +471,7 @@ function QuestionBank() {
                 className="btn-icon danger"
                 onClick={() => del(i)}
                 title="Delete"
+                disabled={saving}
               >
                 <i className="fa-solid fa-trash"></i>
               </button>
@@ -555,11 +531,15 @@ function QuestionBank() {
               />
             </div>
             <div className="modal-actions">
-              <button className="btn btn-sec" onClick={() => setEditing(null)}>
+              <button
+                className="btn btn-sec"
+                onClick={() => setEditing(null)}
+                disabled={saving}
+              >
                 CANCEL
               </button>
-              <button className="btn btn-success" onClick={save}>
-                <i className="fa-solid fa-save"></i> SAVE
+              <button className="btn btn-success" onClick={save} disabled={saving}>
+                <i className={`fa-solid ${saving ? "fa-spinner fa-spin" : "fa-save"}`}></i> SAVE
               </button>
             </div>
           </div>
@@ -569,7 +549,7 @@ function QuestionBank() {
   );
 }
 
-/* ---------------- SETTINGS ---------------- */
+/* ---------------- SETTINGS (CLOUD) ---------------- */
 function Settings({
   config,
   onConfigChange,
@@ -578,129 +558,104 @@ function Settings({
   onConfigChange: (c: QuizConfig) => void;
 }) {
   const [draft, setDraft] = useState<QuizConfig>(config);
-  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(config);
+  }, [config]);
 
   function update<K extends keyof QuizConfig>(key: K, value: QuizConfig[K]) {
     setDraft({ ...draft, [key]: value });
-    setSaved(false);
+    setMsg(null);
   }
 
-  function save() {
-    saveConfig(draft);
-    onConfigChange(draft);
-    setSaved(true);
+  async function save() {
+    setSaving(true);
+    setMsg(null);
+    try {
+      await saveConfigCloud(draft);
+      onConfigChange(draft);
+      setMsg("Settings synced to cloud ✔");
+      setTimeout(() => setMsg(null), 2500);
+    } catch (e) {
+      setMsg("Save failed: " + (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function reset() {
+  async function reset() {
     if (!confirm("Reset settings to defaults?")) return;
-    resetConfig();
-    const fresh = loadConfig();
-    setDraft(fresh);
-    onConfigChange(fresh);
-    setSaved(true);
+    setSaving(true);
+    try {
+      await resetConfigCloud();
+      setDraft(DEFAULT_CONFIG);
+      onConfigChange(DEFAULT_CONFIG);
+      setMsg("Reset to defaults ✔");
+      setTimeout(() => setMsg(null), 2500);
+    } catch (e) {
+      setMsg("Reset failed: " + (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div className="settings">
       <div className="form-grid">
         <Field label="Portal Title" icon="fa-heading">
-          <input
-            value={draft.PORTAL_TITLE}
-            onChange={(e) => update("PORTAL_TITLE", e.target.value)}
-          />
+          <input value={draft.PORTAL_TITLE} onChange={(e) => update("PORTAL_TITLE", e.target.value)} />
         </Field>
         <Field label="Portal Subtitle" icon="fa-heading">
-          <input
-            value={draft.PORTAL_SUBTITLE}
-            onChange={(e) => update("PORTAL_SUBTITLE", e.target.value)}
-          />
+          <input value={draft.PORTAL_SUBTITLE} onChange={(e) => update("PORTAL_SUBTITLE", e.target.value)} />
         </Field>
         <Field label="Logo URL" icon="fa-image">
-          <input
-            value={draft.LOGO_URL}
-            onChange={(e) => update("LOGO_URL", e.target.value)}
-          />
+          <input value={draft.LOGO_URL} onChange={(e) => update("LOGO_URL", e.target.value)} />
         </Field>
         <Field label="Candidate Access Code" icon="fa-lock">
-          <input
-            value={draft.CODE}
-            onChange={(e) => update("CODE", e.target.value)}
-          />
+          <input value={draft.CODE} onChange={(e) => update("CODE", e.target.value)} />
         </Field>
         <Field label="Admin Password" icon="fa-key">
-          <input
-            type="password"
-            value={draft.ADMIN_PASSWORD}
-            onChange={(e) => update("ADMIN_PASSWORD", e.target.value)}
-          />
+          <input type="password" value={draft.ADMIN_PASSWORD} onChange={(e) => update("ADMIN_PASSWORD", e.target.value)} />
         </Field>
         <Field label="WhatsApp Number" icon="fa-phone">
-          <input
-            value={draft.WA}
-            onChange={(e) => update("WA", e.target.value)}
-          />
+          <input value={draft.WA} onChange={(e) => update("WA", e.target.value)} />
         </Field>
         <Field label="Time Limit (seconds)" icon="fa-stopwatch">
-          <input
-            type="number"
-            value={draft.TIME}
-            onChange={(e) => update("TIME", Number(e.target.value) || 0)}
-          />
+          <input type="number" value={draft.TIME} onChange={(e) => update("TIME", Number(e.target.value) || 0)} />
         </Field>
         <Field label="Questions Per Test" icon="fa-list-ol">
-          <input
-            type="number"
-            value={draft.QUESTIONS_PER_TEST}
-            onChange={(e) =>
-              update("QUESTIONS_PER_TEST", Number(e.target.value) || 0)
-            }
-          />
+          <input type="number" value={draft.QUESTIONS_PER_TEST} onChange={(e) => update("QUESTIONS_PER_TEST", Number(e.target.value) || 0)} />
         </Field>
         <Field label="Max Violations Before Auto-Submit" icon="fa-shield-halved">
-          <input
-            type="number"
-            value={draft.MAX_VIOLATIONS}
-            onChange={(e) =>
-              update("MAX_VIOLATIONS", Number(e.target.value) || 1)
-            }
-          />
+          <input type="number" value={draft.MAX_VIOLATIONS} onChange={(e) => update("MAX_VIOLATIONS", Number(e.target.value) || 1)} />
         </Field>
         <Field label="Admin Name" icon="fa-user-shield">
-          <input
-            value={draft.ADMIN.name}
-            onChange={(e) =>
-              update("ADMIN", { ...draft.ADMIN, name: e.target.value })
-            }
-          />
+          <input value={draft.ADMIN.name} onChange={(e) => update("ADMIN", { ...draft.ADMIN, name: e.target.value })} />
         </Field>
         <Field label="Admin School" icon="fa-building-columns">
-          <input
-            value={draft.ADMIN.school}
-            onChange={(e) =>
-              update("ADMIN", { ...draft.ADMIN, school: e.target.value })
-            }
-          />
+          <input value={draft.ADMIN.school} onChange={(e) => update("ADMIN", { ...draft.ADMIN, school: e.target.value })} />
         </Field>
       </div>
 
       <div className="settings-actions">
-        <button className="btn btn-warning" onClick={reset}>
+        <button className="btn btn-warning" onClick={reset} disabled={saving}>
           <i className="fa-solid fa-rotate-left"></i> RESET DEFAULTS
         </button>
-        <button className="btn btn-success" onClick={save}>
-          <i className="fa-solid fa-save"></i> SAVE CHANGES
+        <button className="btn btn-success" onClick={save} disabled={saving}>
+          <i className={`fa-solid ${saving ? "fa-spinner fa-spin" : "fa-save"}`}></i> SAVE CHANGES
         </button>
       </div>
-      {saved && (
+      {msg && (
         <div className="saved-msg">
-          <i className="fa-solid fa-check-circle"></i> Settings saved.
+          <i className="fa-solid fa-check-circle"></i> {msg}
         </div>
       )}
       <div className="settings-note">
-        <i className="fa-solid fa-circle-info"></i> Settings and the question
-        bank are stored on this device's browser. To sync across devices, the
-        admin must update them on each device, or back-end tables can be added
-        to Supabase.
+        <i className="fa-solid fa-cloud"></i> Settings and the question bank are
+        stored in your Supabase <code>quiz_settings</code> table, so every edit
+        here appears instantly on every candidate's device.
       </div>
     </div>
   );

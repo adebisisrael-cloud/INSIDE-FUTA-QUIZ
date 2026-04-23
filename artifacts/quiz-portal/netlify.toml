@@ -1,6 +1,6 @@
 [build]
-  command = "npm install && npm run build"
-  publish = "dist"
+  command = "pnpm install && pnpm --filter quiz-portal run build"
+  publish = "artifacts/quiz-portal/dist"
 
 [build.environment]
   NODE_VERSION = "20"

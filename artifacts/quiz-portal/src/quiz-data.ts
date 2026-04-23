@@ -64,23 +64,22 @@ export const DEFAULT_CONFIG: QuizConfig = {
       "Crop, Soil and Pest management",
       "Fisheries and Aquaculture Technology",
     ],
-    
-  "SIMME": [
-    "Agricultural Engineering",
-    "Chemical Engineering",
-    "Civil & Environmental Engineering",
-    "Industrial & Production Engineering",
-    "Mechanical Engineering",
-    "Metallurgical & Materials Engineering",
-    "Mining Engineering"
-  ],
-  "SESE": [
-    "Electrical and Electronics Engineering",
-    "Computer Engineering",
-    "Information and Communication Technology (ICT) Engineering",
-    "Biomedical Engineering",
-    "Mechatronics Engineering"
-   ],
+    SIMME: [
+      "Agricultural Engineering",
+      "Chemical Engineering",
+      "Civil & Environmental Engineering",
+      "Industrial & Production Engineering",
+      "Mechanical Engineering",
+      "Metallurgical & Materials Engineering",
+      "Mining Engineering",
+    ],
+    SESE: [
+      "Electrical and Electronics Engineering",
+      "Computer Engineering",
+      "Information and Communication Technology (ICT) Engineering",
+      "Biomedical Engineering",
+      "Mechatronics Engineering",
+    ],
     SEMS: [
       "Applied Geophysics",
       "Applied Geology",

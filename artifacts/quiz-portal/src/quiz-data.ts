@@ -5,10 +5,25 @@ export type Question = {
   e: string;
 };
 
-export const CONFIG = {
+export type QuizConfig = {
+  CODE: string;
+  ADMIN_PASSWORD: string;
+  WA: string;
+  TIME: number;
+  ADMIN: { name: string; school: string; dept: string };
+  SCHOOLS: Record<string, string[]>;
+  MAX_VIOLATIONS: number;
+  QUESTIONS_PER_TEST: number;
+  PORTAL_TITLE: string;
+  PORTAL_SUBTITLE: string;
+  LOGO_URL: string;
+};
+
+export const DEFAULT_CONFIG: QuizConfig = {
   CODE: "INSIDEFUTA",
+  ADMIN_PASSWORD: "MASTER2024",
   WA: "2348112476004",
-  TIME: 1500, // 25 minutes
+  TIME: 1500,
   ADMIN: {
     name: "ISRAEL MARVELOUS ADEBISI",
     school: "SPS",
@@ -56,10 +71,15 @@ export const CONFIG = {
       "Industrial Design",
       "Quantity Surveying",
     ],
-  } as Record<string, string[]>,
+  },
+  MAX_VIOLATIONS: 3,
+  QUESTIONS_PER_TEST: 30,
+  PORTAL_TITLE: "INSIDE FUTA",
+  PORTAL_SUBTITLE: "SMART TEST PORTAL",
+  LOGO_URL: "https://files.catbox.moe/33ap4i.jpg",
 };
 
-export const BANK: Question[] = [
+export const DEFAULT_BANK: Question[] = [
   { q: "Who wrote 'Things Fall Apart'?", o: ["Wole Soyinka", "Chinua Achebe", "Ngũgĩ wa Thiong'o", "Buchi Emecheta"], a: 1, e: "Published in 1958." },
   { q: "What is the capital of Australia?", o: ["Sydney", "Melbourne", "Canberra", "Brisbane"], a: 2, e: "Canberra was founded in 1913." },
   { q: "Which element has the chemical symbol 'Au'?", o: ["Silver", "Aluminum", "Gold", "Argon"], a: 2, e: "Au is from the Latin 'aurum'." },
@@ -91,3 +111,50 @@ export const BANK: Question[] = [
   { q: "What is the deepest point in the ocean?", o: ["Mariana Trench", "Puerto Rico", "Tonga", "Philippine"], a: 0, e: "Challenger Deep." },
   { q: "What is the largest island in the world?", o: ["Australia", "Greenland", "New Guinea", "Borneo"], a: 1, e: "Greenland (Island, not Continent)." },
 ];
+
+const CFG_KEY = "futa_config_v1";
+const BANK_KEY = "futa_bank_v1";
+
+export function loadConfig(): QuizConfig {
+  try {
+    const raw = localStorage.getItem(CFG_KEY);
+    if (!raw) return DEFAULT_CONFIG;
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_CONFIG,
+      ...parsed,
+      ADMIN: { ...DEFAULT_CONFIG.ADMIN, ...(parsed.ADMIN || {}) },
+      SCHOOLS: parsed.SCHOOLS || DEFAULT_CONFIG.SCHOOLS,
+    };
+  } catch {
+    return DEFAULT_CONFIG;
+  }
+}
+
+export function saveConfig(cfg: QuizConfig) {
+  localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
+}
+
+export function resetConfig() {
+  localStorage.removeItem(CFG_KEY);
+}
+
+export function loadBank(): Question[] {
+  try {
+    const raw = localStorage.getItem(BANK_KEY);
+    if (!raw) return DEFAULT_BANK;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_BANK;
+    return parsed;
+  } catch {
+    return DEFAULT_BANK;
+  }
+}
+
+export function saveBank(bank: Question[]) {
+  localStorage.setItem(BANK_KEY, JSON.stringify(bank));
+}
+
+export function resetBank() {
+  localStorage.removeItem(BANK_KEY);
+}

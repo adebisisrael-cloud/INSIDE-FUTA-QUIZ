@@ -1,30 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
-import { CONFIG, BANK, type Question } from "./quiz-data";
-
-const SB_URL = "https://viislvqotvivkxcdbtyd.supabase.co";
-const SB_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZpaXNsdnFvdHZpdmt4Y2RidHlkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NDY0NzksImV4cCI6MjA5MjUyMjQ3OX0.1xio9peC2hjyMsjUG5b2rMYiU3BW-SaYaObkq4a8vJQ";
-const supabase = createClient(SB_URL, SB_KEY);
+import { supabase } from "./supabase";
+import {
+  loadConfig,
+  loadBank,
+  type Question,
+  type QuizConfig,
+} from "./quiz-data";
+import { useAntiCheat, type Violation } from "./anti-cheat";
+import { Admin } from "./Admin";
 
 type Screen = "auth" | "quiz" | "result" | "admin";
 
-type Submission = {
-  name: string;
-  whatsapp: string;
-  school: string;
-  dept: string;
-  score: string;
-  points: number;
-  start_time: string;
-  finish_time: string;
-};
-
 function shuffle<T>(arr: T[]): T[] {
-  return [...arr].sort(() => 0.5 - Math.random());
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 export default function App() {
+  const [config, setConfig] = useState<QuizConfig>(loadConfig);
   const [screen, setScreen] = useState<Screen>("auth");
 
   // auth fields
@@ -39,52 +36,84 @@ export default function App() {
   const [pool, setPool] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<(number | null)[]>([]);
   const [idx, setIdx] = useState(0);
-  const [remaining, setRemaining] = useState(CONFIG.TIME);
+  const [remaining, setRemaining] = useState(config.TIME);
   const [startTime, setStartTime] = useState("");
   const [finalScore, setFinalScore] = useState(0);
+  const [finalViolations, setFinalViolations] = useState<Violation[]>([]);
   const [showReview, setShowReview] = useState(false);
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // admin
-  const [adminRows, setAdminRows] = useState<Submission[]>([]);
-
   const timerRef = useRef<number | null>(null);
   const submittedRef = useRef(false);
 
+  const schools = useMemo(() => Object.keys(config.SCHOOLS).sort(), [config]);
   const departments = useMemo(
-    () => (faculty ? [...CONFIG.SCHOOLS[faculty]].sort() : []),
-    [faculty],
+    () => (faculty ? [...(config.SCHOOLS[faculty] || [])].sort() : []),
+    [faculty, config],
   );
-  const schools = useMemo(() => Object.keys(CONFIG.SCHOOLS).sort(), []);
+
+  const cheat = useAntiCheat({
+    active: screen === "quiz",
+    maxViolations: config.MAX_VIOLATIONS,
+    onForceSubmit: (vs) => {
+      void confirmFinish(true, vs);
+    },
+  });
 
   function start() {
     const n = name.trim().toUpperCase();
+
+    // Admin login: name + school + admin password (in code field)
     if (
-      n === CONFIG.ADMIN.name &&
-      faculty === CONFIG.ADMIN.school
+      n === config.ADMIN.name.toUpperCase() &&
+      faculty === config.ADMIN.school
     ) {
-      void openAdmin();
+      if (code !== config.ADMIN_PASSWORD) {
+        setAuthError("Invalid admin password.");
+        return;
+      }
+      setAuthError("");
+      setScreen("admin");
       return;
     }
-    if (!n || !faculty || !dept) {
-      setAuthError("Please fill in all fields.");
+
+    if (!n || !whatsapp || !faculty || !dept) {
+      setAuthError("Please fill in every field.");
       return;
     }
-    if (code !== CONFIG.CODE) {
+    if (code !== config.CODE) {
       setAuthError("Invalid access code.");
       return;
     }
     setAuthError("");
     setName(n);
-    setStartTime(new Date().toLocaleTimeString());
-    const picked = shuffle(BANK).slice(0, 30);
+    beginQuiz();
+  }
+
+  function beginQuiz() {
+    const bank = loadBank();
+    const picked = shuffle(bank).slice(
+      0,
+      Math.min(config.QUESTIONS_PER_TEST, bank.length),
+    );
     setPool(picked);
     setAnswers(new Array(picked.length).fill(null));
     setIdx(0);
-    setRemaining(CONFIG.TIME);
+    setRemaining(config.TIME);
+    setStartTime(new Date().toLocaleTimeString());
+    setFinalScore(0);
+    setFinalViolations([]);
+    setShowReview(false);
+    setShowFinishModal(false);
     submittedRef.current = false;
+    cheat.reset();
     setScreen("quiz");
+  }
+
+  function retake() {
+    // reset auth-only fields stay; reshuffle and go again
+    beginQuiz();
   }
 
   // timer
@@ -94,7 +123,7 @@ export default function App() {
       setRemaining((r) => {
         if (r <= 1) {
           if (timerRef.current) window.clearInterval(timerRef.current);
-          void confirmFinish();
+          void confirmFinish(false, cheat.violations);
           return 0;
         }
         return r - 1;
@@ -118,7 +147,7 @@ export default function App() {
     setIdx((i) => Math.max(0, Math.min(pool.length - 1, i + d)));
   }
 
-  async function confirmFinish() {
+  async function confirmFinish(forced = false, vs: Violation[] = cheat.violations) {
     if (submittedRef.current) return;
     submittedRef.current = true;
     setShowFinishModal(false);
@@ -131,6 +160,7 @@ export default function App() {
       if (answers[i] === q.a) s++;
     });
     setFinalScore(s);
+    setFinalViolations(vs);
     setScreen("result");
 
     try {
@@ -140,34 +170,34 @@ export default function App() {
           whatsapp,
           school: faculty,
           dept,
-          score: `${s}/${pool.length}`,
+          score: `${s}/${pool.length}${forced ? " (auto)" : ""}`,
           points: s,
           start_time: startTime,
           finish_time: finishTime,
         },
       ]);
     } catch {
-      /* swallow — result still shown */
+      /* ignore */
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function openAdmin() {
-    setScreen("admin");
-    const { data } = await supabase
-      .from("submissions")
-      .select("*")
-      .order("points", { ascending: false });
-    setAdminRows((data as Submission[]) ?? []);
-  }
-
   function shareWA() {
-    const msg = `*GENERAL KNOWLEDGE REPORT*\n*Candidate:* ${name}\n*Score:* ${finalScore}/${pool.length}`;
+    const msg = `*${config.PORTAL_TITLE} REPORT*\n*Candidate:* ${name}\n*School:* ${faculty}\n*Dept:* ${dept}\n*Score:* ${finalScore}/${pool.length}`;
     window.open(
-      `https://wa.me/${CONFIG.WA}?text=${encodeURIComponent(msg)}`,
+      `https://wa.me/${config.WA}?text=${encodeURIComponent(msg)}`,
       "_blank",
     );
+  }
+
+  function logoutAdmin() {
+    setScreen("auth");
+    setName("");
+    setCode("");
+    setFaculty("");
+    setDept("");
+    setConfig(loadConfig());
   }
 
   const minutes = Math.floor(remaining / 60);
@@ -176,31 +206,22 @@ export default function App() {
   return (
     <div onContextMenu={(e) => e.preventDefault()}>
       <header>
-        <img
-          src="https://files.catbox.moe/33ap4i.jpg"
-          alt="Logo"
-          className="logo"
-        />
+        <img src={config.LOGO_URL} alt="Logo" className="logo" />
         <div className="h-txt">
-          <h1>INSIDE FUTA</h1>
-          <p>SMART TEST PORTAL</p>
+          <h1>{config.PORTAL_TITLE}</h1>
+          <p>{config.PORTAL_SUBTITLE}</p>
         </div>
       </header>
 
       <div className="container">
         {screen === "auth" && (
           <div className="card">
-            <h2
-              style={{
-                textAlign: "center",
-                marginBottom: 20,
-                color: "var(--blue)",
-              }}
-            >
-              CANDIDATE LOGIN
+            <h2 className="card-title">
+              <i className="fa-solid fa-user-shield"></i> CANDIDATE LOGIN
             </h2>
             <div className="form-item">
               <label>Full Name</label>
+              <i className="fa-solid fa-user input-icon"></i>
               <input
                 type="text"
                 placeholder="SURNAME FIRSTNAME"
@@ -210,6 +231,7 @@ export default function App() {
             </div>
             <div className="form-item">
               <label>WhatsApp Number</label>
+              <i className="fa-solid fa-phone input-icon"></i>
               <input
                 type="tel"
                 placeholder="08112476004"
@@ -219,6 +241,7 @@ export default function App() {
             </div>
             <div className="form-item">
               <label>School (Faculty)</label>
+              <i className="fa-solid fa-building-columns input-icon"></i>
               <select
                 value={faculty}
                 onChange={(e) => {
@@ -236,15 +259,14 @@ export default function App() {
             </div>
             <div className="form-item">
               <label>Department</label>
+              <i className="fa-solid fa-graduation-cap input-icon"></i>
               <select
                 value={dept}
                 onChange={(e) => setDept(e.target.value)}
                 disabled={!faculty}
               >
                 <option value="">
-                  {faculty
-                    ? "-- Select Department --"
-                    : "-- Select School First --"}
+                  {faculty ? "-- Select Department --" : "-- Select School First --"}
                 </option>
                 {departments.map((d) => (
                   <option key={d} value={d}>
@@ -255,41 +277,65 @@ export default function App() {
             </div>
             <div className="form-item">
               <label>Access Code</label>
+              <i className="fa-solid fa-lock input-icon"></i>
               <input
-                type="text"
+                type="password"
                 placeholder="Enter Access Code"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") start();
+                }}
               />
             </div>
             <button className="btn" onClick={start}>
-              ACCESS PORTAL
+              <i className="fa-solid fa-right-to-bracket"></i> ACCESS PORTAL
             </button>
-            {authError && <div className="error-msg">{authError}</div>}
+            {authError && (
+              <div className="error-msg">
+                <i className="fa-solid fa-triangle-exclamation"></i> {authError}
+              </div>
+            )}
+            <div className="auth-foot">
+              <i className="fa-solid fa-shield-halved"></i> Secure proctored test
+              · {config.QUESTIONS_PER_TEST} questions ·{" "}
+              {Math.floor(config.TIME / 60)} minutes
+            </div>
           </div>
         )}
 
         {screen === "quiz" && pool.length > 0 && (
           <div className="card">
             <div className="stats">
-              <div style={{ fontWeight: "bold", color: "var(--blue)" }}>
-                {name}
+              <div className="u-tag">
+                <i className="fa-solid fa-user-check"></i> {name}
               </div>
-              <div className="timer">
-                {minutes}:{seconds < 10 ? "0" : ""}
+              <div className="violations-tag" title="Violations">
+                <i className="fa-solid fa-shield-halved"></i>{" "}
+                {cheat.violations.length}/{config.MAX_VIOLATIONS}
+              </div>
+              <div className={`timer ${remaining < 60 ? "danger" : ""}`}>
+                <i className="fa-solid fa-stopwatch"></i> {minutes}:
+                {seconds < 10 ? "0" : ""}
                 {seconds}
               </div>
             </div>
 
-            <p
-              style={{
-                fontWeight: "bold",
-                color: "var(--gold)",
-                fontSize: "0.8rem",
-                textTransform: "uppercase",
-              }}
-            >
-              Question {idx + 1} of {pool.length}
+            <div className="progress-bar">
+              <div
+                className="progress-fill"
+                style={{
+                  width: `${
+                    (answers.filter((x) => x !== null).length / pool.length) *
+                    100
+                  }%`,
+                }}
+              />
+            </div>
+
+            <p className="q-head">
+              <i className="fa-solid fa-circle-question"></i> Question {idx + 1}{" "}
+              of {pool.length}
             </p>
             <div className="q-body">{pool[idx].q}</div>
             <div className="opts">
@@ -299,39 +345,35 @@ export default function App() {
                   className={`opt ${answers[idx] === i ? "active" : ""}`}
                   onClick={() => pickAnswer(i)}
                 >
-                  <b>{String.fromCharCode(65 + i)}.</b> {t}
+                  <span className="opt-letter">
+                    {String.fromCharCode(65 + i)}
+                  </span>
+                  <span>{t}</span>
                 </div>
               ))}
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginTop: 25,
-              }}
-            >
+            <div className="nav-row">
               <button
                 className="btn btn-sec"
                 onClick={() => move(-1)}
                 disabled={idx === 0}
               >
-                PREVIOUS
+                <i className="fa-solid fa-angle-left"></i> PREVIOUS
               </button>
               <button
                 className="btn btn-sec"
                 onClick={() => move(1)}
                 disabled={idx === pool.length - 1}
               >
-                NEXT
+                NEXT <i className="fa-solid fa-angle-right"></i>
               </button>
             </div>
             <button
-              className="btn"
-              style={{ background: "var(--err)", marginTop: 15 }}
+              className="btn btn-danger"
               onClick={() => setShowFinishModal(true)}
             >
-              SUBMIT FINAL
+              <i className="fa-solid fa-paper-plane"></i> SUBMIT FINAL
             </button>
 
             <div className="map">
@@ -342,6 +384,7 @@ export default function App() {
                     idx === i ? "now" : ""
                   }`}
                   onClick={() => setIdx(i)}
+                  title={`Question ${i + 1}`}
                 >
                   {i + 1}
                 </div>
@@ -351,54 +394,68 @@ export default function App() {
         )}
 
         {screen === "result" && (
-          <div className="card" style={{ textAlign: "center" }}>
-            <div
-              style={{
-                fontSize: "4rem",
-                color: "var(--ok)",
-                marginBottom: 15,
-              }}
-            >
-              ✓
+          <div className="card result-card">
+            <div className="result-icon">
+              <i className="fa-solid fa-circle-check"></i>
             </div>
-            <h2
-              style={{
-                margin: "10px 0",
-                fontSize: "2.5rem",
-                color: "var(--blue)",
-              }}
-            >
+            <h2 className="final-score">
               {finalScore}/{pool.length}
             </h2>
-            {submitting && (
-              <p style={{ color: "#666" }}>Syncing to server…</p>
+            <p className="result-pct">
+              {pool.length
+                ? Math.round((finalScore / pool.length) * 100)
+                : 0}
+              % ·{" "}
+              {finalScore / Math.max(pool.length, 1) >= 0.7
+                ? "Excellent"
+                : finalScore / Math.max(pool.length, 1) >= 0.5
+                  ? "Good"
+                  : "Keep practising"}
+            </p>
+            {finalViolations.length > 0 && (
+              <div className="violations-box">
+                <i className="fa-solid fa-triangle-exclamation"></i>{" "}
+                {finalViolations.length} violation(s) recorded
+                {finalViolations.length >= config.MAX_VIOLATIONS &&
+                  " — auto-submitted"}
+              </div>
             )}
-            <div style={{ display: "grid", gap: 10, marginTop: 20 }}>
+            {submitting && (
+              <p className="syncing">
+                <i className="fa-solid fa-spinner fa-spin"></i> Syncing to server…
+              </p>
+            )}
+            <div className="result-actions">
               <button
-                className="btn"
-                style={{ background: "#3498db" }}
+                className="btn btn-info"
                 onClick={() => setShowReview((v) => !v)}
               >
+                <i className="fa-solid fa-list-check"></i>{" "}
                 {showReview ? "HIDE CORRECTIONS" : "VIEW CORRECTIONS"}
               </button>
-              <button
-                className="btn"
-                style={{ background: "#27ae60" }}
-                onClick={shareWA}
-              >
-                NOTIFY ADMIN (WhatsApp)
+              <button className="btn btn-success" onClick={shareWA}>
+                <i className="fa-brands fa-whatsapp"></i> NOTIFY ADMIN
+              </button>
+              <button className="btn btn-warning" onClick={retake}>
+                <i className="fa-solid fa-rotate"></i> RETAKE TEST
               </button>
               <button
-                className="btn"
-                style={{ background: "#2c3e50" }}
-                onClick={() => location.reload()}
+                className="btn btn-dark"
+                onClick={() => {
+                  setScreen("auth");
+                  setName("");
+                  setCode("");
+                  setWhatsapp("");
+                  setFaculty("");
+                  setDept("");
+                }}
               >
-                RESTART
+                <i className="fa-solid fa-right-from-bracket"></i> EXIT
               </button>
             </div>
 
             {showReview && (
-              <div style={{ marginTop: 25, textAlign: "left" }}>
+              <div className="review-list">
                 {pool.map((q, i) => {
                   const correct = answers[i] === q.a;
                   return (
@@ -411,32 +468,32 @@ export default function App() {
                         }`,
                       }}
                     >
-                      <b>
-                        Q{i + 1}: {q.q}
-                      </b>
-                      <br />
-                      <span
-                        style={{
-                          color: correct ? "var(--ok)" : "var(--err)",
-                        }}
+                      <div className="review-q">
+                        <span className="review-num">Q{i + 1}</span> {q.q}
+                      </div>
+                      <div
+                        className={`review-yours ${
+                          correct ? "correct" : "wrong"
+                        }`}
                       >
+                        <i
+                          className={`fa-solid ${
+                            correct ? "fa-circle-check" : "fa-circle-xmark"
+                          }`}
+                        ></i>{" "}
                         Yours:{" "}
                         {answers[i] !== null
                           ? q.o[answers[i] as number]
                           : "Skipped"}
-                      </span>
-                      <br />
+                      </div>
                       {!correct && (
-                        <>
-                          <span style={{ color: "var(--ok)" }}>
-                            Correct: {q.o[q.a]}
-                          </span>
-                          <br />
-                        </>
+                        <div className="review-correct">
+                          <i className="fa-solid fa-check"></i> Correct: {q.o[q.a]}
+                        </div>
                       )}
-                      <small style={{ color: "#666" }}>
-                        <i>{q.e}</i>
-                      </small>
+                      <div className="review-explain">
+                        <i className="fa-solid fa-circle-info"></i> {q.e}
+                      </div>
                     </div>
                   );
                 })}
@@ -446,127 +503,26 @@ export default function App() {
         )}
 
         {screen === "admin" && (
-          <div className="card">
-            <h2
-              style={{
-                color: "var(--blue)",
-                marginBottom: 20,
-              }}
-            >
-              MASTER CONTROL
-            </h2>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 15,
-                marginBottom: 25,
-              }}
-            >
-              <div
-                style={{
-                  background: "#f0f7ff",
-                  padding: 20,
-                  borderRadius: 10,
-                  textAlign: "center",
-                  border: "1px solid #d0e4ff",
-                }}
-              >
-                <p
-                  style={{
-                    fontSize: "0.75rem",
-                    fontWeight: "bold",
-                    color: "#555",
-                  }}
-                >
-                  TOTAL CANDIDATES
-                </p>
-                <h2
-                  style={{ color: "var(--blue)", fontSize: "2rem" }}
-                >
-                  {adminRows.length}
-                </h2>
-              </div>
-              <div
-                style={{
-                  background: "#fff9e6",
-                  padding: 20,
-                  borderRadius: 10,
-                  textAlign: "center",
-                  border: "1px solid #ffe8a3",
-                }}
-              >
-                <p
-                  style={{
-                    fontSize: "0.75rem",
-                    fontWeight: "bold",
-                    color: "#555",
-                  }}
-                >
-                  HIGHEST SCORE
-                </p>
-                <h2
-                  style={{ color: "var(--gold)", fontSize: "2rem" }}
-                >
-                  {adminRows[0]?.points ?? 0}
-                </h2>
-              </div>
-            </div>
-            <div
-              style={{
-                maxHeight: 500,
-                overflowY: "auto",
-                border: "1px solid #eee",
-                borderRadius: 8,
-              }}
-            >
-              {adminRows.map((r, i) => (
-                <div key={i} className="admin-row">
-                  <div>
-                    <b>{r.name}</b>
-                    <br />
-                    <small>{r.dept}</small>
-                    <br />
-                    <small style={{ color: "var(--blue)" }}>
-                      {r.start_time} – {r.finish_time}
-                    </small>
-                  </div>
-                  <div className="badge">{r.score}</div>
-                </div>
-              ))}
-              {adminRows.length === 0 && (
-                <div style={{ padding: 20, textAlign: "center", color: "#888" }}>
-                  No submissions yet.
-                </div>
-              )}
-            </div>
-          </div>
+          <Admin
+            config={config}
+            onConfigChange={(c) => setConfig(c)}
+            onLogout={logoutAdmin}
+          />
         )}
       </div>
 
       {showFinishModal && (
         <div className="modal-overlay">
-          <div className="card" style={{ maxWidth: 380, textAlign: "center" }}>
-            <div
-              style={{
-                fontSize: 50,
-                color: "var(--gold)",
-                marginBottom: 15,
-              }}
-            >
-              ?
+          <div className="card modal-card">
+            <div className="modal-icon">
+              <i className="fa-solid fa-circle-question"></i>
             </div>
             <h3>FINISH TEST?</h3>
-            <p
-              style={{
-                margin: "15px 0 25px",
-                color: "#666",
-                fontSize: "0.95rem",
-              }}
-            >
+            <p className="modal-text">
               Confirming will end your session and sync your data to the server.
+              Answered: {answers.filter((x) => x !== null).length}/{pool.length}.
             </p>
-            <div style={{ display: "flex", gap: 10 }}>
+            <div className="modal-actions">
               <button
                 className="btn btn-sec"
                 onClick={() => setShowFinishModal(false)}
@@ -574,11 +530,34 @@ export default function App() {
                 CANCEL
               </button>
               <button
-                className="btn"
-                style={{ background: "var(--ok)" }}
-                onClick={confirmFinish}
+                className="btn btn-success"
+                onClick={() => confirmFinish(false)}
               >
                 SUBMIT NOW
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cheat.warning && screen === "quiz" && (
+        <div className="modal-overlay">
+          <div className="card modal-card warn-modal">
+            <div className="modal-icon warn">
+              <i className="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <h3>SECURITY VIOLATION</h3>
+            <p className="modal-text">
+              <b>{cheat.warning}</b>
+              <br />
+              Warnings: {cheat.violations.length}/{config.MAX_VIOLATIONS}.
+              <br />
+              Your test will be auto-submitted at {config.MAX_VIOLATIONS}{" "}
+              violations.
+            </p>
+            <div className="modal-actions">
+              <button className="btn btn-warning" onClick={cheat.dismissWarning}>
+                I UNDERSTAND
               </button>
             </div>
           </div>

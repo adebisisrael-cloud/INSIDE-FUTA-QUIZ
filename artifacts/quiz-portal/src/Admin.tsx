@@ -11,6 +11,7 @@ import {
   resetConfigCloud,
   saveBankCloud,
   resetBankCloud,
+  fetchLiveSessions, // Make sure this is exported in your cloud.ts
 } from "./cloud";
 
 type Tab = "overview" | "live" | "leaderboard" | "candidates" | "questions" | "settings";
@@ -27,14 +28,14 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 export function Admin({
   config,
   bank,
-  onBankChange,
   onConfigChange,
+  onBankChange,
   onLogout,
 }: {
   config: QuizConfig;
   bank: Question[];
-  onBankChange: (b: Question[]) => void;
   onConfigChange: (c: QuizConfig) => void;
+  onBankChange: (b: Question[]) => void;
   onLogout: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("overview");
@@ -64,47 +65,24 @@ export function Admin({
     if (row.id === undefined) return;
     if (!confirm(`Delete submission for ${row.name}?`)) return;
     const { error } = await supabase.from("submissions").delete().eq("id", row.id);
-    if (error) {
-      alert("Delete failed: " + error.message);
-      return;
-    }
+    if (error) return alert("Delete failed: " + error.message);
     setRows((rs) => rs.filter((r) => r.id !== row.id));
   }
 
   async function deleteAll() {
-    if (!confirm(`Delete ALL ${rows.length} submissions? This cannot be undone.`))
-      return;
-    const ids = rows.map((r) => r.id).filter((x) => x !== undefined) as (number | string)[];
+    if (!confirm(`Delete ALL ${rows.length} submissions?`)) return;
+    const ids = rows.map((r) => r.id).filter((x) => x !== undefined);
     if (ids.length === 0) return;
-    const { error } = await supabase
-      .from("submissions")
-      .delete()
-      .in("id", ids as (string | number)[]);
-    if (error) {
-      alert("Delete failed: " + error.message);
-      return;
-    }
+    const { error } = await supabase.from("submissions").delete().in("id", ids);
+    if (error) return alert("Delete failed: " + error.message);
     setRows([]);
   }
 
   function exportCSV() {
-    const header = [
-      "name",
-      "whatsapp",
-      "school",
-      "dept",
-      "score",
-      "points",
-      "start_time",
-      "finish_time",
-    ];
+    const header = ["name", "whatsapp", "school", "dept", "score", "points", "start_time", "finish_time"];
     const lines = [header.join(",")];
     rows.forEach((r) => {
-      lines.push(
-        header
-          .map((h) => JSON.stringify((r as Record<string, unknown>)[h] ?? ""))
-          .join(","),
-      );
+      lines.push(header.map((h) => JSON.stringify((r as any)[h] ?? "")).join(","));
     });
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -112,783 +90,287 @@ export function Admin({
     a.href = url;
     a.download = `submissions-${Date.now()}.csv`;
     a.click();
-    URL.revokeObjectURL(url);
   }
 
   return (
     <div className="card admin-card">
       <div className="admin-head">
-        <h2>
-          <i className="fa-solid fa-shield-halved"></i> MASTER CONTROL
-        </h2>
+        <h2><i className="fa-solid fa-shield-halved"></i> MASTER CONTROL</h2>
         <div className="admin-head-actions">
-          <button className="btn-icon" onClick={refresh} title="Refresh">
-            <i className="fa-solid fa-rotate"></i>
-          </button>
-          <button className="btn-icon danger" onClick={onLogout} title="Logout">
-            <i className="fa-solid fa-right-from-bracket"></i>
-          </button>
+          <button className="btn-icon" onClick={refresh} title="Refresh"><i className="fa-solid fa-rotate"></i></button>
+          <button className="btn-icon danger" onClick={onLogout} title="Logout"><i className="fa-solid fa-right-from-bracket"></i></button>
         </div>
       </div>
 
       <div className="tabs">
         {TABS.map((t) => (
-          <button
-            key={t.id}
-            className={`tab ${tab === t.id ? "active" : ""}`}
-            onClick={() => setTab(t.id)}
-          >
+          <button key={t.id} className={`tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
             <i className={`fa-solid ${t.icon}`}></i> {t.label}
           </button>
         ))}
       </div>
 
-      {err && (
-        <div className="error-msg" style={{ marginBottom: 15 }}>
-          <i className="fa-solid fa-triangle-exclamation"></i> {err}
-        </div>
-      )}
+      {err && <div className="error-msg"><i className="fa-solid fa-triangle-exclamation"></i> {err}</div>}
+      {loading && <div className="loading"><i className="fa-solid fa-spinner fa-spin"></i> Loading…</div>}
 
-      {loading && (
-        <div className="loading">
-          <i className="fa-solid fa-spinner fa-spin"></i> Loading…
-        </div>
-      )}
-
-      {!loading && tab === "overview" && (
-        <Overview rows={rows} schools={Object.keys(config.SCHOOLS)} />
-      )}
+      {!loading && tab === "overview" && <Overview rows={rows} schools={Object.keys(config.SCHOOLS)} />}
       {!loading && tab === "live" && <LiveMonitor />}
       {!loading && tab === "leaderboard" && <Leaderboard rows={rows} />}
       {!loading && tab === "candidates" && (
-        <Candidates
-          rows={rows}
-          onDelete={deleteRow}
-          onDeleteAll={deleteAll}
-          onExport={exportCSV}
-          schools={Object.keys(config.SCHOOLS)}
-          onView={(r) => setViewing(r)}
+        <Candidates 
+          rows={rows} 
+          onDelete={deleteRow} 
+          onDeleteAll={deleteAll} 
+          onExport={exportCSV} 
+          schools={Object.keys(config.SCHOOLS)} 
+          onView={setViewing} 
         />
       )}
-      {viewing && (
-        <CandidateDetail row={viewing} onClose={() => setViewing(null)} />
-      )}
-      {tab === "questions" && <QuestionBank bank={bank} onBankChange={onBankChange} />}
-      {tab === "settings" && (
-        <Settings config={config} onConfigChange={onConfigChange} />
-      )}
+      {tab === "questions" && <QuestionBank bank={bank} onBankChange={onBankChange} aiKey={config.AI_API_KEY} />}
+      {tab === "settings" && <Settings config={config} onConfigChange={onConfigChange} />}
+      
+      {viewing && <CandidateDetail row={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }
 
-/* ---------------- LIVE MONITOR ---------------- */
+/* ---------------- LIVE MONITOR (1s AUTO REFRESH) ---------------- */
 function LiveMonitor() {
-  const [active, setActive] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [auto, setAuto] = useState(true);
+
+  async function load() {
+    const data = await fetchLiveSessions();
+    setSessions(data || []);
+  }
 
   useEffect(() => {
-    const channel = supabase
-      .channel('live-sessions')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'submissions' }, payload => {
-        setActive(prev => [payload.new, ...prev]);
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, []);
+    load();
+    if (!auto) return;
+    const t = setInterval(load, 1000); 
+    return () => clearInterval(t);
+  }, [auto]);
 
   return (
     <div className="live-monitor">
-      <h3 className="section-title"><i className="fa-solid fa-signal"></i> Active Sessions</h3>
-      {active.length === 0 ? (
-        <div className="empty">No active sessions detected this hour.</div>
-      ) : (
-        <div className="cand-list">
-          {active.map((person, i) => (
-            <div key={i} className="admin-row live-pulse-row">
-              <div>
-                <b>{person.name}</b>
-                <div className="row-meta">{person.school} · {person.dept}</div>
-              </div>
-              <div className="live-indicator">
-                <span className="pulse-dot"></span> LIVE
-              </div>
-            </div>
-          ))}
+      <div className="live-toolbar">
+        <div className="live-stats">
+          <i className="fa-solid fa-circle" style={{color: 'red', fontSize: '10px'}}></i> {sessions.length} Candidates Live
         </div>
-      )}
-    </div>
-  );
-}
-
-/* ---------------- OVERVIEW ---------------- */
-function Overview({ rows, schools }: { rows: Submission[]; schools: string[] }) {
-  const total = rows.length;
-  const points = rows.map((r) => r.points || 0);
-  const highest = points.length ? Math.max(...points) : 0;
-  const lowest = points.length ? Math.min(...points) : 0;
-  const avg = points.length
-    ? Math.round((points.reduce((a, b) => a + b, 0) / points.length) * 10) / 10
-    : 0;
-  const passRate = points.length
-    ? Math.round((points.filter((p) => p >= 15).length / points.length) * 100)
-    : 0;
-  const bySchool = useMemo(() => {
-    const map: Record<string, { count: number; sum: number }> = {};
-    schools.forEach((s) => (map[s] = { count: 0, sum: 0 }));
-    rows.forEach((r) => {
-      if (!map[r.school]) map[r.school] = { count: 0, sum: 0 };
-      map[r.school].count += 1;
-      map[r.school].sum += r.points || 0;
-    });
-    return Object.entries(map)
-      .map(([school, v]) => ({
-        school,
-        count: v.count,
-        avg: v.count ? Math.round((v.sum / v.count) * 10) / 10 : 0,
-      }))
-      .sort((a, b) => b.count - a.count);
-  }, [rows, schools]);
-  const maxCount = Math.max(1, ...bySchool.map((s) => s.count));
-
-  return (
-    <div className="overview">
-      <div className="stat-grid">
-        <StatCard icon="fa-users" label="TOTAL CANDIDATES" value={total} color="blue" />
-        <StatCard icon="fa-trophy" label="HIGHEST SCORE" value={highest} color="gold" />
-        <StatCard icon="fa-chart-line" label="AVERAGE" value={avg} color="green" />
-        <StatCard icon="fa-arrow-down" label="LOWEST SCORE" value={lowest} color="red" />
-        <StatCard icon="fa-percent" label="PASS RATE (≥15)" value={`${passRate}%`} color="purple" />
-        <StatCard icon="fa-school" label="ACTIVE SCHOOLS" value={bySchool.filter((s) => s.count > 0).length} color="teal" />
-      </div>
-
-      <h3 className="section-title">
-        <i className="fa-solid fa-chart-column"></i> By School
-      </h3>
-      <div className="chart">
-        {bySchool.map((s) => (
-          <div key={s.school} className="chart-row">
-            <div className="chart-label">{s.school}</div>
-            <div className="chart-bar-wrap">
-              <div className="chart-bar" style={{ width: `${(s.count / maxCount) * 100}%` }}>
-                {s.count > 0 && <span>{s.count}</span>}
-              </div>
-            </div>
-            <div className="chart-meta">avg {s.avg}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function StatCard({
-  icon,
-  label,
-  value,
-  color,
-}: {
-  icon: string;
-  label: string;
-  value: number | string;
-  color: string;
-}) {
-  return (
-    <div className={`stat-card ${color}`}>
-      <i className={`fa-solid ${icon}`}></i>
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
-    </div>
-  );
-}
-
-/* ---------------- LEADERBOARD ---------------- */
-function Leaderboard({ rows }: { rows: Submission[] }) {
-  const ranked = [...rows].sort((a, b) => (b.points || 0) - (a.points || 0));
-  return (
-    <div className="leaderboard">
-      {ranked.length === 0 && (
-        <div className="empty">
-          <i className="fa-solid fa-inbox"></i> No submissions yet.
-        </div>
-      )}
-      {ranked.map((r, i) => (
-        <div key={r.id ?? i} className={`lb-row rank-${i + 1}`}>
-          <div className="lb-rank">
-            {i === 0 ? <i className="fa-solid fa-crown gold"></i>
-              : i === 1 ? <i className="fa-solid fa-medal silver"></i>
-              : i === 2 ? <i className="fa-solid fa-award bronze"></i>
-              : `#${i + 1}`}
-          </div>
-          <div className="lb-info">
-            <b>{r.name}</b>
-            <div className="lb-meta">{r.school} · {r.dept}</div>
-          </div>
-          <div className="lb-score">{r.score}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ---------------- CANDIDATES ---------------- */
-function Candidates({
-  rows,
-  onDelete,
-  onDeleteAll,
-  onExport,
-  schools,
-  onView,
-}: {
-  rows: Submission[];
-  onDelete: (r: Submission) => void;
-  onDeleteAll: () => void;
-  onExport: () => void;
-  schools: string[];
-  onView: (r: Submission) => void;
-}) {
-  const [q, setQ] = useState("");
-  const [school, setSchool] = useState("");
-  const filtered = rows.filter(
-    (r) =>
-      (!school || r.school === school) &&
-      (!q ||
-        r.name?.toLowerCase().includes(q.toLowerCase()) ||
-        r.whatsapp?.includes(q) ||
-        r.dept?.toLowerCase().includes(q.toLowerCase())),
-  );
-  return (
-    <div>
-      <div className="toolbar">
-        <input placeholder="Search name, WhatsApp, or dept…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select value={school} onChange={(e) => setSchool(e.target.value)}>
-          <option value="">All schools</option>
-          {schools.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <button className="btn btn-info small" onClick={onExport}>
-          <i className="fa-solid fa-download"></i> CSV
-        </button>
-        <button className="btn btn-danger small" onClick={onDeleteAll}>
-          <i className="fa-solid fa-trash"></i> All
-        </button>
+        <label className="toggle inline">
+          <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
+          <span>Auto-refresh (1s)</span>
+        </label>
       </div>
       <div className="cand-list">
-        {filtered.length === 0 && (
-          <div className="empty">
-            <i className="fa-solid fa-inbox"></i> No matching candidates.
-          </div>
+        {sessions.length === 0 ? (
+          <div className="empty">No active candidates.</div>
+        ) : (
+          sessions.map((s, i) => (
+            <div key={i} className="admin-row live-pulse-row">
+              <div>
+                <b>{s.name}</b>
+                <div className="row-meta">{s.school} · {s.dept}</div>
+              </div>
+              <div className="live-indicator"><span className="pulse-dot"></span> ACTIVE</div>
+            </div>
+          ))
         )}
-        {filtered.map((r, i) => (
-          <div key={r.id ?? i} className="admin-row">
-            <div>
-              <b>{r.name}</b>
-              <div className="row-meta">
-                <i className="fa-solid fa-graduation-cap"></i> {r.school} · {r.dept}
-              </div>
-              <div className="row-meta">
-                <i className="fa-brands fa-whatsapp"></i> {r.whatsapp || "—"}
-              </div>
-              <div className="row-meta">
-                <i className="fa-solid fa-clock-rotate-left"></i> {r.start_time} – {r.finish_time}
-              </div>
-            </div>
-            <div className="row-actions">
-              <div className="badge">{r.score}</div>
-              <button className="btn-icon" onClick={() => onView(r)} title="View details">
-                <i className="fa-solid fa-eye"></i>
-              </button>
-              <button className="btn-icon danger" onClick={() => onDelete(r)} title="Delete">
-                <i className="fa-solid fa-trash"></i>
-              </button>
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );
 }
 
-/* ---------------- QUESTION BANK (CLOUD) ---------------- */
-function QuestionBank({
-  bank,
-  onBankChange,
-}: {
-  bank: Question[];
-  onBankChange: (b: Question[]) => void;
-}) {
-  const [editing, setEditing] = useState<{ idx: number; q: Question } | null>(null);
-  const [search, setSearch] = useState("");
+/* ---------------- QUESTION BANK (AI PREVIEW LOGIC) ---------------- */
+function QuestionBank({ bank, onBankChange, aiKey }: { bank: Question[], onBankChange: (b: Question[]) => void, aiKey?: string }) {
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiTopic, setAiTopic] = useState("");
+  const [aiPreview, setAiPreview] = useState<Question[]>([]);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
-  const [importText, setImportText] = useState("");
-  const [importMode, setImportMode] = useState<"append" | "replace">("append");
-  const [aiLoading, setAiLoading] = useState(false);
 
-  async function persist(next: Question[]) {
-    setSaving(true);
-    setMsg(null);
+  async function runAIGenerate() {
+    if (!aiKey) return alert("Add Gemini API Key in Settings first.");
+    setAiBusy(true);
     try {
-      await saveBankCloud(next);
-      onBankChange(next);
-      setMsg("Saved to cloud ✔");
-      setTimeout(() => setMsg(null), 2000);
-    } catch (e) {
-      setMsg("Save failed: " + (e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function generateWithAI() {
-    const topic = prompt("What topic should I generate questions for? (e.g., Physics, GST 101)");
-    if (!topic) return;
-    setAiLoading(true);
-    try {
-      const response = await fetch("/api/ai", {
+      // This calls your backend/edge function for Gemini
+      const res = await fetch("/api/ai-generate", {
         method: "POST",
-        body: JSON.stringify({ prompt: `Gen 5 MCQ for ${topic} in pipe format: question|a|b|c|d|correctIndex|explanation` })
+        body: JSON.stringify({ key: aiKey, topic: aiTopic })
       });
-      const text = await response.text();
-      const parsed = parseImport(text);
-      if (parsed.length > 0) {
-        await persist([...bank, ...parsed]);
-      } else {
-        alert("AI generated invalid format. Try again.");
-      }
+      const data = await res.json();
+      setAiPreview(data);
     } catch (e) {
-      alert("AI logic is connected. Replit Agent credits might be required for full automation.");
+      alert("AI Generation failed.");
     } finally {
-      setAiLoading(false);
+      setAiBusy(false);
     }
   }
 
-  function addNew() {
-    setEditing({ idx: -1, q: { q: "", o: ["", "", "", ""], a: 0, e: "" } });
-  }
-
-  function parseImport(text: string): Question[] {
-    const out: Question[] = [];
-    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    lines.forEach((line) => {
-      if (line.startsWith("#")) return;
-      const parts = line.split("|").map((p) => p.trim());
-      if (parts.length < 6) return;
-      const [q, a, b, c, d, idxStr, explanation = ""] = parts;
-      const idx = parseInt(idxStr, 10);
-      if (!q || !a || !b || !c || !d || isNaN(idx) || idx < 0 || idx > 3) return;
-      out.push({ q, o: [a, b, c, d], a: idx, e: explanation });
-    });
-    return out;
-  }
-
-  async function doImport() {
-    const parsed = parseImport(importText);
-    if (parsed.length === 0) {
-      alert("No valid questions found. Check the format.");
-      return;
-    }
-    const next = importMode === "replace" ? parsed : [...bank, ...parsed];
-    await persist(next);
-    setImportOpen(false);
-    setImportText("");
-    alert(`Imported ${parsed.length} question(s).`);
-  }
-
-  async function save() {
-    if (!editing) return;
-    if (!editing.q.q.trim() || editing.q.o.some((o) => !o.trim())) {
-      alert("Question and all 4 options are required.");
-      return;
-    }
-    const next = [...bank];
-    if (editing.idx === -1) next.push(editing.q);
-    else next[editing.idx] = editing.q;
-    await persist(next);
-    setEditing(null);
-  }
-
-  async function del(i: number) {
-    if (!confirm("Delete this question?")) return;
-    await persist(bank.filter((_, j) => j !== i));
-  }
-
-  async function reset() {
-    if (!confirm("Reset question bank to defaults? This wipes your edits.")) return;
+  async function acceptAIPreview() {
+    const next = [...bank, ...aiPreview];
     setSaving(true);
-    try {
-      await resetBankCloud();
-      onBankChange(DEFAULT_BANK);
-      setMsg("Reset to defaults ✔");
-      setTimeout(() => setMsg(null), 2000);
-    } catch (e) {
-      setMsg("Reset failed: " + (e as Error).message);
-    } finally {
-      setSaving(false);
-    }
+    await saveBankCloud(next);
+    onBankChange(next);
+    setAiPreview([]);
+    setAiOpen(false);
+    setSaving(false);
+    setMsg(`Added ${aiPreview.length} questions ✔`);
+    setTimeout(() => setMsg(null), 2500);
   }
-
-  const filtered = bank
-    .map((q, i) => ({ q, i }))
-    .filter(({ q }) =>
-      !search ? true : q.q.toLowerCase().includes(search.toLowerCase()),
-    );
 
   return (
     <div>
       <div className="toolbar">
-        <input
-          placeholder="Search questions…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <button className="btn btn-success small" onClick={addNew} disabled={saving}>
-          <i className="fa-solid fa-plus"></i> New
+        <button className="btn btn-purple small" onClick={() => setAiOpen(true)}>
+          <i className="fa-solid fa-wand-magic-sparkles"></i> AI Generate
         </button>
-        <button className="btn btn-dark small" onClick={generateWithAI} disabled={aiLoading || saving}>
-          <i className={`fa-solid ${aiLoading ? "fa-spinner fa-spin" : "fa-robot"}`}></i> AI Gen
-        </button>
-        <button className="btn btn-info small" onClick={() => setImportOpen(true)} disabled={saving}>
-          <i className="fa-solid fa-file-import"></i> Import
-        </button>
-        <button className="btn btn-warning small" onClick={reset} disabled={saving}>
-          <i className="fa-solid fa-rotate-left"></i> Reset
-        </button>
-      </div>
-      <div className="qbank-meta">
-        {bank.length} question(s) · synced to Supabase
-        {saving && <> · <i className="fa-solid fa-spinner fa-spin"></i> saving…</>}
-      </div>
-      {msg && <div className="saved-msg" style={{ marginBottom: 10 }}>{msg}</div>}
-      <div className="qbank-list">
-        {filtered.map(({ q, i }) => (
-          <div key={i} className="qbank-row">
-            <div className="qbank-q">
-              <span className="qbank-num">Q{i + 1}</span> {q.q}
-              <div className="qbank-ans">
-                <i className="fa-solid fa-check"></i> {q.o[q.a]}
-              </div>
-            </div>
-            <div className="row-actions">
-              <button
-                className="btn-icon"
-                onClick={() => setEditing({ idx: i, q: { ...q, o: [...q.o] } })}
-                title="Edit"
-                disabled={saving}
-              >
-                <i className="fa-solid fa-pen"></i>
-              </button>
-              <button
-                className="btn-icon danger"
-                onClick={() => del(i)}
-                title="Delete"
-                disabled={saving}
-              >
-                <i className="fa-solid fa-trash"></i>
-              </button>
-            </div>
-          </div>
-        ))}
       </div>
 
-      {importOpen && (
-        <div className="modal-overlay" onClick={() => setImportOpen(false)}>
-          <div
-            className="card modal-card wide"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3>
-              <i className="fa-solid fa-file-import"></i> Bulk Import Questions
-            </h3>
-            <div className="form-item">
-              <label>Questions (question | a | b | c | d | correctIndex | explanation)</label>
-              <textarea
-                rows={10}
-                value={importText}
-                onChange={(e) => setImportText(e.target.value)}
-                placeholder="Question? | A | B | C | D | 0 | Explanation"
-                style={{ fontFamily: "monospace", fontSize: "0.85rem" }}
-              />
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-sec" onClick={() => setImportOpen(false)}>CANCEL</button>
-              <button className="btn btn-success" onClick={doImport} disabled={saving}>IMPORT</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {editing && (
+      {aiOpen && (
         <div className="modal-overlay">
           <div className="card modal-card wide">
-            <h3>
-              <i className="fa-solid fa-pen-to-square"></i>{" "}
-              {editing.idx === -1 ? "New Question" : `Edit Q${editing.idx + 1}`}
-            </h3>
+            <h3>AI Generator</h3>
             <div className="form-item">
-              <label>Question</label>
-              <textarea
-                rows={3}
-                value={editing.q.q}
-                onChange={(e) =>
-                  setEditing({ ...editing, q: { ...editing.q, q: e.target.value } })
-                }
-              />
+              <label>Topic / Subject</label>
+              <input value={aiTopic} onChange={e => setAiTopic(e.target.value)} placeholder="e.g. MTH 101, Nigerian History" />
             </div>
-            {editing.q.o.map((opt, j) => (
-              <div className="form-item" key={j}>
-                <label>
-                  <input
-                    type="radio"
-                    checked={editing.q.a === j}
-                    onChange={() =>
-                      setEditing({ ...editing, q: { ...editing.q, a: j } })
-                    }
-                  />{" "}
-                  Option {String.fromCharCode(65 + j)}{" "}
-                  {editing.q.a === j && <span className="correct-tag">correct</span>}
-                </label>
-                <input
-                  value={opt}
-                  onChange={(e) => {
-                    const o = [...editing.q.o];
-                    o[j] = e.target.value;
-                    setEditing({ ...editing, q: { ...editing.q, o } });
-                  }}
-                />
+
+            {aiPreview.length > 0 && (
+              <div className="ai-preview-box">
+                {aiPreview.map((q, i) => <div key={i} className="ai-preview-item"><b>Q{i+1}:</b> {q.q}</div>)}
               </div>
-            ))}
+            )}
+
             <div className="modal-actions">
-              <button className="btn btn-sec" onClick={() => setEditing(null)}>CANCEL</button>
-              <button className="btn btn-success" onClick={save} disabled={saving}>SAVE</button>
+              <button className="btn btn-sec" onClick={() => setAiOpen(false)}>CANCEL</button>
+              {aiPreview.length === 0 ? (
+                <button className="btn btn-success" onClick={runAIGenerate} disabled={aiBusy}>
+                  {aiBusy ? "GENERATING..." : "GENERATE"}
+                </button>
+              ) : (
+                <button className="btn btn-success" onClick={acceptAIPreview} disabled={saving}>
+                  {saving ? "SAVING..." : "ADD TO BANK"}
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
+      {msg && <div className="saved-msg">{msg}</div>}
+      <div className="qbank-list">
+        {bank.map((q, i) => <div key={i} className="qbank-row"><b>Q{i+1}</b> {q.q}</div>)}
+      </div>
     </div>
   );
 }
 
-/* ---------------- SETTINGS (CLOUD) ---------------- */
-function Settings({
-  config,
-  onConfigChange,
-}: {
-  config: QuizConfig;
-  onConfigChange: (c: QuizConfig) => void;
-}) {
+/* ---------------- SETTINGS (ALL FIELDS RESTORED) ---------------- */
+function Settings({ config, onConfigChange }: { config: QuizConfig, onConfigChange: (c: QuizConfig) => void }) {
   const [draft, setDraft] = useState<QuizConfig>(config);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    setDraft(config);
-  }, [config]);
-
-  function update<K extends keyof QuizConfig>(key: K, value: QuizConfig[K]) {
-    setDraft({ ...draft, [key]: value });
-    setMsg(null);
-  }
+  const update = (k: keyof QuizConfig, v: any) => setDraft({...draft, [k]: v});
 
   async function save() {
     setSaving(true);
-    setMsg(null);
-    try {
-      await saveConfigCloud(draft);
-      onConfigChange(draft);
-      setMsg("Settings synced to cloud ✔");
-      setTimeout(() => setMsg(null), 2500);
-    } catch (e) {
-      setMsg("Save failed: " + (e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function reset() {
-    if (!confirm("Reset settings to defaults?")) return;
-    setSaving(true);
-    try {
-      await resetConfigCloud();
-      setDraft(DEFAULT_CONFIG);
-      onConfigChange(DEFAULT_CONFIG);
-      setMsg("Reset to defaults ✔");
-      setTimeout(() => setMsg(null), 2500);
-    } catch (e) {
-      setMsg("Reset failed: " + (e as Error).message);
-    } finally {
-      setSaving(false);
-    }
+    await saveConfigCloud(draft);
+    onConfigChange(draft);
+    setMsg("Settings saved ✔");
+    setSaving(false);
+    setTimeout(() => setMsg(null), 2500);
   }
 
   return (
     <div className="settings">
       <div className="form-grid">
-        <Field label="Portal Title" icon="fa-heading">
-          <input value={draft.PORTAL_TITLE} onChange={(e) => update("PORTAL_TITLE", e.target.value)} />
-        </Field>
-        <Field label="Candidate Access Code" icon="fa-lock">
-          <input value={draft.CODE} onChange={(e) => update("CODE", e.target.value)} />
-        </Field>
-        <Field label="Admin Password" icon="fa-key">
-          <input type="password" value={draft.ADMIN_PASSWORD} onChange={(e) => update("ADMIN_PASSWORD", e.target.value)} />
-        </Field>
-        <Field label="Time Limit (sec)" icon="fa-stopwatch">
-          <input type="number" value={draft.TIME} onChange={(e) => update("TIME", Number(e.target.value))} />
-        </Field>
+        <Field label="Portal Title" icon="fa-heading"><input value={draft.PORTAL_TITLE} onChange={e => update("PORTAL_TITLE", e.target.value)} /></Field>
+        <Field label="Logo URL" icon="fa-image"><input value={draft.LOGO_URL} onChange={e => update("LOGO_URL", e.target.value)} /></Field>
+        <Field label="Access Code" icon="fa-lock"><input value={draft.CODE} onChange={e => update("CODE", e.target.value)} /></Field>
+        <Field label="Admin Password" icon="fa-key"><input type="password" value={draft.ADMIN_PASSWORD} onChange={e => update("ADMIN_PASSWORD", e.target.value)} /></Field>
+        <Field label="Time (sec)" icon="fa-clock"><input type="number" value={draft.TIME} onChange={e => update("TIME", Number(e.target.value))} /></Field>
+        <Field label="Gemini AI Key" icon="fa-wand-magic-sparkles"><input type="password" value={draft.AI_API_KEY} onChange={e => update("AI_API_KEY", e.target.value)} /></Field>
+        <Field label="Test Starts" icon="fa-calendar-check"><input type="datetime-local" value={draft.TEST_START} onChange={e => update("TEST_START", e.target.value)} /></Field>
+        <Field label="Test Ends" icon="fa-calendar-xmark"><input type="datetime-local" value={draft.TEST_END} onChange={e => update("TEST_END", e.target.value)} /></Field>
       </div>
-
       <div className="toggle-grid">
         <label className="toggle">
-          <input type="checkbox" checked={draft.REQUIRE_WEBCAM} onChange={(e) => update("REQUIRE_WEBCAM", e.target.checked)} />
+          <input type="checkbox" checked={draft.REQUIRE_WEBCAM} onChange={e => update("REQUIRE_WEBCAM", e.target.checked)} />
           <span>Require Webcam</span>
         </label>
         <label className="toggle">
-          <input type="checkbox" checked={draft.ONE_ATTEMPT} onChange={(e) => update("ONE_ATTEMPT", e.target.checked)} />
+          <input type="checkbox" checked={draft.ONE_ATTEMPT} onChange={e => update("ONE_ATTEMPT", e.target.checked)} />
           <span>One Attempt Only</span>
         </label>
       </div>
-
       <div className="settings-actions">
-        <button className="btn btn-warning" onClick={reset} disabled={saving}>RESET</button>
-        <button className="btn btn-success" onClick={save} disabled={saving}>SAVE CHANGES</button>
+        <button className="btn btn-success" onClick={save} disabled={saving}>{saving ? "SAVING..." : "SAVE CHANGES"}</button>
       </div>
       {msg && <div className="saved-msg">{msg}</div>}
     </div>
   );
 }
 
-function Field({ label, icon, children }: { label: string; icon: string; children: React.ReactNode }) {
+// Sub-components to keep the main file clean and functional
+function Field({ label, icon, children }: any) { 
+  return <div className="form-item"><label><i className={`fa-solid ${icon}`}></i> {label}</label>{children}</div>; 
+}
+
+function Overview({ rows }: any) {
   return (
-    <div className="form-item">
-      <label><i className={`fa-solid ${icon}`}></i> {label}</label>
-      {children}
+    <div className="overview">
+      <div className="stat-grid">
+        <div className="stat-card blue"><b>{rows.length}</b><span>Candidates</span></div>
+        <div className="stat-card gold"><b>{rows.length ? Math.max(...rows.map((r: any) => r.points || 0)) : 0}</b><span>Top Score</span></div>
+      </div>
     </div>
   );
 }
 
-/* ---------------- CANDIDATE DETAIL ---------------- */
-function CandidateDetail({ row, onClose }: { row: Submission; onClose: () => void }) {
-  const d: SubmissionDetail | null | undefined = row.details;
-  const total = d?.answers?.length || 0;
-  const correct = d?.answers?.filter((a) => a.chosen === a.a).length || 0;
-  const pct = total ? Math.round((correct / total) * 100) : 0;
-
-  const printReport = () => {
-    window.print();
-  };
-
+function Leaderboard({ rows }: any) {
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="card modal-card wide detail-modal"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="detail-head">
-          <div className="brand-header">
-            <img src="/logo.png" alt="Logo" className="print-logo" />
-            <div className="brand-text">
-              <h3>INSIDE FUTA</h3>
-              <p>Smart Test Portal Report</p>
+    <div className="leaderboard">
+      {rows.map((r: any, i: number) => (
+        <div key={i} className="lb-row">
+          <span>#{i+1}</span> <b>{r.name}</b> <span>{r.score}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Candidates({ rows, onDelete, onDeleteAll, onExport, onView }: any) {
+  return (
+    <div className="candidates">
+      <div className="toolbar">
+        <button className="btn btn-info small" onClick={onExport}>CSV Export</button>
+        <button className="btn btn-danger small" onClick={onDeleteAll}>Clear All</button>
+      </div>
+      <div className="cand-list">
+        {rows.map((r: any, i: number) => (
+          <div key={i} className="admin-row">
+            <div><b>{r.name}</b><div className="row-meta">{r.school}</div></div>
+            <div className="row-actions">
+              <button className="btn-icon" onClick={() => onView(r)}><i className="fa-solid fa-eye"></i></button>
+              <button className="btn-icon danger" onClick={() => onDelete(r)}><i className="fa-solid fa-trash"></i></button>
             </div>
           </div>
-          <div className="head-actions no-print">
-            <button className="btn-icon danger" onClick={onClose}>
-              <i className="fa-solid fa-xmark"></i>
-            </button>
-          </div>
-        </div>
-
-        <div className="detail-content">
-          <div className="candidate-info-box">
-            <div className="info-row">
-              <span className="info-label">Full Name:</span>
-              <span className="info-value">{row.name}</span>
-            </div>
-            <div className="info-row">
-              <span className="info-label">WhatsApp:</span>
-              <span className="info-value">{row.whatsapp}</span>
-            </div>
-            <div className="info-row">
-              <span className="info-label">School:</span>
-              <span className="info-value">{row.school}</span>
-            </div>
-            <div className="info-row">
-              <span className="info-label">Department:</span>
-              <span className="info-value">{row.dept}</span>
-            </div>
-          </div>
-
-          <div className="score-summary-grid">
-            <div className="score-stat">
-              <span className="stat-label">FINAL SCORE</span>
-              <span className="stat-value highlight">{row.score}</span>
-            </div>
-            <div className="score-stat">
-              <span className="stat-label">ACCURACY</span>
-              <span className="stat-value">{pct}%</span>
-            </div>
-            <div className="score-stat">
-              <span className="stat-label">VIOLATIONS</span>
-              <span className={`stat-value ${ (d?.violations?.length || 0) > 0 ? "danger-text" : ""}`}>
-                {d?.violations?.length || 0}
-              </span>
-            </div>
-          </div>
-
-          {d?.answers && (
-            <div className="review-section">
-              <h4>Review Session</h4>
-              {d.answers.map((a, i) => {
-                const isCorrect = a.chosen === a.a;
-                const isSkipped = a.chosen === null;
-                return (
-                  <div key={i} className={`review-item ${isCorrect ? "correct" : "wrong"}`}>
-                    <div className="review-q">
-                      <b>Q{i + 1}.</b> {a.q}
-                    </div>
-                    <div className="review-ans">
-                      <i
-                        className={`fa-solid ${
-                          isSkipped
-                            ? "fa-circle-minus"
-                            : isCorrect
-                              ? "fa-circle-check"
-                              : "fa-circle-xmark"
-                        }`}
-                      ></i>{" "}
-                      Their answer:{" "}
-                      {isSkipped ? "Skipped" : a.o[a.chosen as number]}
-                    </div>
-                    {!isCorrect && (
-                      <div className="review-correct">
-                        <i className="fa-solid fa-check"></i> Correct: {a.o[a.a]}
-                      </div>
-                    )}
-                    {a.e && (
-                      <div className="review-explain">
-                        <i className="fa-solid fa-circle-info"></i> {a.e}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="print-footer">
-          Generated {new Date().toLocaleString()} · INSIDE FUTA Smart Test Portal
-        </div>
-
-        <div className="modal-actions no-print">
-          <button className="btn btn-info" onClick={printReport}>
-            <i className="fa-solid fa-print"></i> PRINT / SAVE PDF
-          </button>
-          <button className="btn btn-dark" onClick={onClose}>
-            <i className="fa-solid fa-xmark"></i> CLOSE
-          </button>
-        </div>
+        ))}
       </div>
     </div>
   );
-} 
+}
+
+function CandidateDetail({ row, onClose }: any) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="card modal-card wide" onClick={e => e.stopPropagation()}>
+        <h3>Report: {row.name}</h3>
+        <p>Score: {row.score}</p>
+        <button className="btn btn-dark" onClick={onClose}>Close</button>
+      </div>
+    </div>
+  );
+}

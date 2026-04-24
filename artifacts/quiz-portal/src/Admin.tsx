@@ -1,7 +1,4 @@
-import os
-
-# The content for Admin.tsx with integrated features and removed multi-tenant logic
-admin_tsx_content = """import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase, type Submission, type SubmissionDetail } from "./supabase";
 import {
   DEFAULT_CONFIG,
@@ -109,7 +106,7 @@ export function Admin({
           .join(","),
       );
     });
-    const blob = new Blob([lines.join("\\n")], { type: "text/csv" });
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -471,7 +468,7 @@ function QuestionBank({
 
   function parseImport(text: string): Question[] {
     const out: Question[] = [];
-    const lines = text.split(/\\r?\\n/).map((l) => l.trim()).filter(Boolean);
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     lines.forEach((line) => {
       if (line.startsWith("#")) return;
       const parts = line.split("|").map((p) => p.trim());
@@ -494,15 +491,7 @@ function QuestionBank({
     await persist(next);
     setImportOpen(false);
     setImportText("");
-    alert(`Imported \${parsed.length} question(s).`);
-  }
-
-  function onFilePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => setImportText(String(reader.result || ""));
-    reader.readAsText(f);
+    alert(`Imported ${parsed.length} question(s).`);
   }
 
   async function save() {
@@ -556,7 +545,7 @@ function QuestionBank({
           <i className="fa-solid fa-plus"></i> New
         </button>
         <button className="btn btn-dark small" onClick={generateWithAI} disabled={aiLoading || saving}>
-          <i className={`fa-solid \${aiLoading ? "fa-spinner fa-spin" : "fa-robot"}`}></i> AI Gen
+          <i className={`fa-solid ${aiLoading ? "fa-spinner fa-spin" : "fa-robot"}`}></i> AI Gen
         </button>
         <button className="btn btn-info small" onClick={() => setImportOpen(true)} disabled={saving}>
           <i className="fa-solid fa-file-import"></i> Import
@@ -633,7 +622,7 @@ function QuestionBank({
           <div className="card modal-card wide">
             <h3>
               <i className="fa-solid fa-pen-to-square"></i>{" "}
-              {editing.idx === -1 ? "New Question" : `Edit Q\${editing.idx + 1}`}
+              {editing.idx === -1 ? "New Question" : `Edit Q${editing.idx + 1}`}
             </h3>
             <div className="form-item">
               <label>Question</label>
@@ -771,7 +760,7 @@ function Settings({
 function Field({ label, icon, children }: { label: string; icon: string; children: React.ReactNode }) {
   return (
     <div className="form-item">
-      <label><i className={`fa-solid \${icon}`}></i> {label}</label>
+      <label><i className={`fa-solid ${icon}`}></i> {label}</label>
       {children}
     </div>
   );
@@ -784,29 +773,122 @@ function CandidateDetail({ row, onClose }: { row: Submission; onClose: () => voi
   const correct = d?.answers?.filter((a) => a.chosen === a.a).length || 0;
   const pct = total ? Math.round((correct / total) * 100) : 0;
 
+  const printReport = () => {
+    window.print();
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="card modal-card wide detail-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="card modal-card wide detail-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="detail-head">
-          <h3><i className="fa-solid fa-id-card"></i> {row.name}</h3>
-          <button className="btn-icon danger" onClick={onClose}><i className="fa-solid fa-xmark"></i></button>
+          <div className="brand-header">
+            <img src="/logo.png" alt="Logo" className="print-logo" />
+            <div className="brand-text">
+              <h3>INSIDE FUTA</h3>
+              <p>Smart Test Portal Report</p>
+            </div>
+          </div>
+          <div className="head-actions no-print">
+            <button className="btn-icon danger" onClick={onClose}>
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          </div>
         </div>
-        <div className="detail-stats">
-          <div className="dstat"><span>SCORE</span><b>{row.score}</b></div>
-          <div className="dstat"><span>PERCENT</span><b>{pct}%</b></div>
-          <div className="dstat"><span>VIOLATIONS</span><b>{d?.violations?.length || 0}</b></div>
+
+        <div className="detail-content">
+          <div className="candidate-info-box">
+            <div className="info-row">
+              <span className="info-label">Full Name:</span>
+              <span className="info-value">{row.name}</span>
+            </div>
+            <div className="info-row">
+              <span className="info-label">WhatsApp:</span>
+              <span className="info-value">{row.whatsapp}</span>
+            </div>
+            <div className="info-row">
+              <span className="info-label">School:</span>
+              <span className="info-value">{row.school}</span>
+            </div>
+            <div className="info-row">
+              <span className="info-label">Department:</span>
+              <span className="info-value">{row.dept}</span>
+            </div>
+          </div>
+
+          <div className="score-summary-grid">
+            <div className="score-stat">
+              <span className="stat-label">FINAL SCORE</span>
+              <span className="stat-value highlight">{row.score}</span>
+            </div>
+            <div className="score-stat">
+              <span className="stat-label">ACCURACY</span>
+              <span className="stat-value">{pct}%</span>
+            </div>
+            <div className="score-stat">
+              <span className="stat-label">VIOLATIONS</span>
+              <span className={`stat-value ${ (d?.violations?.length || 0) > 0 ? "danger-text" : ""}`}>
+                {d?.violations?.length || 0}
+              </span>
+            </div>
+          </div>
+
+          {d?.answers && (
+            <div className="review-section">
+              <h4>Review Session</h4>
+              {d.answers.map((a, i) => {
+                const isCorrect = a.chosen === a.a;
+                const isSkipped = a.chosen === null;
+                return (
+                  <div key={i} className={`review-item ${isCorrect ? "correct" : "wrong"}`}>
+                    <div className="review-q">
+                      <b>Q{i + 1}.</b> {a.q}
+                    </div>
+                    <div className="review-ans">
+                      <i
+                        className={`fa-solid ${
+                          isSkipped
+                            ? "fa-circle-minus"
+                            : isCorrect
+                              ? "fa-circle-check"
+                              : "fa-circle-xmark"
+                        }`}
+                      ></i>{" "}
+                      Their answer:{" "}
+                      {isSkipped ? "Skipped" : a.o[a.chosen as number]}
+                    </div>
+                    {!isCorrect && (
+                      <div className="review-correct">
+                        <i className="fa-solid fa-check"></i> Correct: {a.o[a.a]}
+                      </div>
+                    )}
+                    {a.e && (
+                      <div className="review-explain">
+                        <i className="fa-solid fa-circle-info"></i> {a.e}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-        <div className="modal-actions">
-          <button className="btn btn-info" onClick={() => window.print()}>PRINT REPORT</button>
-          <button className="btn btn-dark" onClick={onClose}>CLOSE</button>
+
+        <div className="print-footer">
+          Generated {new Date().toLocaleString()} · INSIDE FUTA Smart Test Portal
+        </div>
+
+        <div className="modal-actions no-print">
+          <button className="btn btn-info" onClick={printReport}>
+            <i className="fa-solid fa-print"></i> PRINT / SAVE PDF
+          </button>
+          <button className="btn btn-dark" onClick={onClose}>
+            <i className="fa-solid fa-xmark"></i> CLOSE
+          </button>
         </div>
       </div>
     </div>
   );
-}
-"""
-
-with open("Admin.tsx", "w") as f:
-    f.write(admin_tsx_content)
-
-print("Admin.tsx file created successfully.")
+} 

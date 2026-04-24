@@ -8,6 +8,24 @@ import {
 
 const TABLE = "quiz_settings";
 
+/**
+ * RESTORED: fetchLiveSessions
+ * This allows the Admin panel to monitor active candidates in real-time.
+ * It searches for submissions that have started but not yet finished.
+ */
+export async function fetchLiveSessions() {
+  const { data, error } = await supabase
+    .from("submissions")
+    .select("session_id, name, school, dept, last_seen, progress, snapshot")
+    .is("finish_time", null); // Only students currently in the test
+
+  if (error) {
+    console.error("Error fetching live sessions:", error.message);
+    return [];
+  }
+  return data || [];
+}
+
 export async function fetchConfig(): Promise<QuizConfig> {
   const { data, error } = await supabase
     .from(TABLE)
